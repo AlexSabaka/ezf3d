@@ -323,11 +323,16 @@ class Shape:
                 yield Body(self.model, entity)
 
     def solids(self) -> Iterator[Body]:
-        """One :class:`Body` per distinct solid, keyed by its lump chain."""
-        seen: set[tuple[int, ...]] = set()
+        """One :class:`Body` per distinct solid, keyed by its shells.
+
+        Keying on lumps is not enough: a design with rollback history can hold
+        body records whose lump records differ while both lumps point at the
+        same shells, which would count one solid twice.
+        """
+        seen: set[frozenset[int]] = set()
         for body in self.bodies():
-            key = tuple(lump.index for lump in body.lumps())
-            if key in seen:
+            key = frozenset(shell.index for lump in body.lumps() for shell in lump.shells())
+            if not key or key in seen:
                 continue
             seen.add(key)
             yield body

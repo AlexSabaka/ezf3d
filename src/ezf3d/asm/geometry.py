@@ -177,6 +177,30 @@ class Surface:
     def point_at(self, u: float, v: float) -> Vec:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def points_at(self, uv: np.ndarray) -> np.ndarray:
+        """Evaluate an ``(n, 2)`` array of parameters."""
+        return np.array([self.point_at(float(u), float(v)) for u, v in uv])
+
+    def invert(self, point: Vec) -> tuple[float, float]:
+        """Parameters of the point on this surface nearest *point*.
+
+        This is what makes trimming possible: a face's boundary is given as 3D
+        curves, and triangulating it needs those curves in the surface's own
+        parameter space.
+        """
+        raise NotImplementedError  # pragma: no cover - interface
+
+    def normal_at(self, u: float, v: float) -> Vec:
+        """Unit normal at ``(u, v)``, by central difference if not overridden."""
+        step = 1e-6
+        du = self.point_at(u + step, v) - self.point_at(u - step, v)
+        dv = self.point_at(u, v + step) - self.point_at(u, v - step)
+        normal = np.cross(du, dv)
+        length = float(np.linalg.norm(normal))
+        if length < 1e-30:
+            return np.array([0.0, 0.0, 1.0])
+        return normal / length
+
     def distance_to(self, point: Vec) -> float:
         """Unsigned distance from *point* to the surface.
 
@@ -184,6 +208,25 @@ class Surface:
         needing the UV convention to be settled first.
         """
         raise NotImplementedError  # pragma: no cover - interface
+
+    @property
+    def u_period(self) -> float | None:
+        """Period of the *u* parameter, or ``None`` if it does not wrap."""
+        return None
+
+    @property
+    def v_period(self) -> float | None:
+        return None
+
+    @property
+    def v_radius(self) -> float | None:
+        """Radius of curvature along *v*, or ``None`` where *v* is straight.
+
+        A tessellator needs this to know whether a strip spanning *v* has to be
+        subdivided: a cylinder is ruled along *v* and needs nothing, while a
+        fillet torus curves through its whole tube.
+        """
+        return None
 
 
 @dataclass(slots=True)
@@ -198,6 +241,17 @@ class Plane(Surface):
 
     def point_at(self, u: float, v: float) -> Vec:
         return self.origin + u * self.u_dir + v * self.v_dir
+
+    def points_at(self, uv: np.ndarray) -> np.ndarray:
+        uv = np.asarray(uv, dtype=float)
+        return self.origin + uv[:, 0:1] * self.u_dir + uv[:, 1:2] * self.v_dir
+
+    def invert(self, point: Vec) -> tuple[float, float]:
+        delta = point - self.origin
+        return float(np.dot(delta, self.u_dir)), float(np.dot(delta, self.v_dir))
+
+    def normal_at(self, u: float, v: float) -> Vec:
+        return self.normal
 
     def distance_to(self, point: Vec) -> float:
         return abs(float(np.dot(point - self.origin, self.normal)))
@@ -257,6 +311,22 @@ class Cone(Surface):
         radial = math.cos(u) * self.major + math.sin(u) * self.minor
         return self.base + v * self.axis + self.scale_at_height(v) * radial
 
+    def invert(self, point: Vec) -> tuple[float, float]:
+        delta = point - self.base
+        height = float(np.dot(delta, self.axis))
+        radial = delta - height * self.axis
+        scale = self.scale_at_height(height)
+        major_len = self.base_radius or 1.0
+        major_dir = self.major / major_len
+        minor_dir = np.cross(self.axis, major_dir)
+        x = float(np.dot(radial, major_dir)) / max(major_len * scale, 1e-30)
+        y = float(np.dot(radial, minor_dir)) / max(major_len * self.ratio * scale, 1e-30)
+        return math.atan2(y, x), height
+
+    @property
+    def u_period(self) -> float:
+        return 2.0 * math.pi
+
     def distance_to(self, point: Vec) -> float:
         """Radial distance from *point* to the surface.
 
@@ -305,6 +375,23 @@ class Sphere(Surface):
             math.cos(v) * (math.cos(u) * self.u_ref + math.sin(u) * w) + math.sin(v) * self.pole
         )
 
+    @property
+    def v_radius(self) -> float:
+        return abs(self.radius)
+
+    def invert(self, point: Vec) -> tuple[float, float]:
+        """*u* is longitude about the pole, *v* latitude from the equator."""
+        delta = point - self.centre
+        w = np.cross(self.pole, self.u_ref)
+        height = float(np.dot(delta, self.pole))
+        x = float(np.dot(delta, self.u_ref))
+        y = float(np.dot(delta, w))
+        return math.atan2(y, x), math.atan2(height, math.hypot(x, y))
+
+    @property
+    def u_period(self) -> float:
+        return 2.0 * math.pi
+
     def distance_to(self, point: Vec) -> float:
         return abs(float(np.linalg.norm(point - self.centre)) - abs(self.radius))
 
@@ -325,6 +412,35 @@ class Torus(Surface):
             + (self.major_radius + self.minor_radius * math.cos(v)) * radial
             + self.minor_radius * math.sin(v) * self.axis
         )
+
+    @property
+    def v_radius(self) -> float:
+        return abs(self.minor_radius)
+
+    def invert(self, point: Vec) -> tuple[float, float]:
+        """*u* runs around the ring, *v* around the tube.
+
+        The minor radius is **signed**: ASM writes it negative for a concave
+        fillet, where the tube is subtracted rather than added.  Dividing the
+        tube-frame coordinates by it puts *v* back on the right side — reading
+        it as positive puts every concave fillet half a tube out of place.
+        """
+        delta = point - self.centre
+        w = np.cross(self.axis, self.u_ref)
+        height = float(np.dot(delta, self.axis))
+        x = float(np.dot(delta, self.u_ref))
+        y = float(np.dot(delta, w))
+        minor = self.minor_radius or 1.0
+        radial = math.hypot(x, y) - self.major_radius
+        return math.atan2(y, x), math.atan2(height / minor, radial / minor)
+
+    @property
+    def u_period(self) -> float:
+        return 2.0 * math.pi
+
+    @property
+    def v_period(self) -> float:
+        return 2.0 * math.pi
 
     def distance_to(self, point: Vec) -> float:
         delta = point - self.centre
