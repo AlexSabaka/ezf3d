@@ -29,15 +29,33 @@ from itertools import pairwise
 import numpy as np
 
 from ezf3d.asm.brep import Face, Loop, Shape
-from ezf3d.asm.geometry import GeometryError, Plane, SplineCurve, SplineSurface, Surface
+from ezf3d.asm.geometry import GeometryError, Plane, SplineSurface, Surface
 from ezf3d.mesh.mesh import Mesh
-from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE, discretise_edge
+from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE, discretise_edge, usable_curve
 
 #: How close a loop's total u-span must be to a full period to count as wrapping.
 _WRAP_TOLERANCE = 0.2
 
+#: Tessellate faces that sit on a spline surface.  Off, because the
+#: approximation ezf3d finds for a procedural surface has not been shown to be
+#: the right one: even sampled at 80x80 it sits a quarter of a millimetre from
+#: the face's own vertices, and triangulating it produced worse geometry than
+#: leaving the face out. Spline *curves* are verified and are always used.
+TESSELLATE_SPLINE_SURFACES = False
+
+#: How far a face's vertices may sit from its approximating spline surface
+#: before the approximation is treated as the wrong one.
+SURFACE_FIT_TOLERANCE = 5e-3
+
 #: Cap on rows added across a strip, however tight the tolerance.
 _MAX_ROWS = 64
+
+#: How many times a measured strip may be halved before giving up.
+_MAX_REFINE_STEPS = 5
+
+#: A face whose triangles stray this far past the tolerance is reported rather
+#: than meshed.  Marginal overshoot is fine; a fan across a curved face is not.
+_REJECT_FACTOR = 4.0
 
 
 @dataclass(slots=True)
@@ -83,8 +101,7 @@ def _loop_polyline(loop: Loop, tolerance: float) -> np.ndarray | None:
             return None
         if edge.is_degenerate:
             continue
-        curve = edge.curve
-        if curve is None or isinstance(curve, SplineCurve):
+        if usable_curve(edge) is None:
             return None
         line = discretise_edge(edge, tolerance)
         if line is None or len(line) < 2:
@@ -298,7 +315,7 @@ def _v_subdivisions(surface: Surface, uv: np.ndarray, tolerance: float) -> int:
     """How many rows a strip needs across *v* to stay within *tolerance*."""
     radius = surface.v_radius
     if radius is None or radius <= 0.0:
-        return 1
+        return 2 if isinstance(surface, SplineSurface) else 1
     span = float(uv[:, 1].max() - uv[:, 1].min())
     if span <= 0.0:
         return 1
@@ -386,7 +403,7 @@ def _subdivide_strip(
             out.append((previous[0], previous[1], right))
             out.append((previous[0], right, left))
             previous = (left, right)
-    return np.array(points), out
+    return np.array(points), out, np.array(params)
 
 
 # -- faces -----------------------------------------------------------------
@@ -435,35 +452,118 @@ def _stitch_ring(
     return [t for t in triangles if len({*t}) == 3], boundary
 
 
+def _deviation(surface: Surface, params: np.ndarray, vertices: np.ndarray, triangles) -> float:
+    """How far each triangle's middle sits from the surface beneath it.
+
+    Measured through the parameters rather than by inverting the surface: the
+    corners' mean parameter names the point the flat triangle is standing in
+    for, and evaluating it once is thousands of times cheaper than a numeric
+    inversion — which is what made refining a procedural surface take minutes.
+    """
+    if not triangles or params is None or not len(params):
+        return 0.0
+    index = np.array(triangles, dtype=np.int64)
+    if index.max() >= len(params):
+        return 0.0
+    centroids = np.asarray(vertices)[index].mean(axis=1)
+    middles = params[index].mean(axis=1)
+    worst = 0.0
+    try:
+        for centroid, (u, v) in zip(centroids, middles, strict=True):
+            worst = max(
+                worst, float(np.linalg.norm(surface.point_at(float(u), float(v)) - centroid))
+            )
+    except (GeometryError, ValueError):
+        return 0.0
+    return worst
+
+
+def _refine_strip(
+    surface: Surface,
+    uv: np.ndarray,
+    vertices: np.ndarray,
+    triangles: list[tuple[int, int, int]],
+    boundary: set[tuple[int, int]],
+    tolerance: float,
+):
+    """Subdivide a strip until its triangles sit on the surface.
+
+    An analytic surface says how far apart its rows may be, but a procedural
+    one — a blend, an offset — has no such closed form, so the strip is
+    measured and halved until it is inside tolerance.  Measuring is what makes
+    this work for surfaces whose curvature is not known in advance.
+    """
+    rows = _v_subdivisions(surface, uv, tolerance)
+    best = (vertices, triangles, uv)
+    if rows > 1:
+        best = _subdivide_strip(surface, uv, vertices, triangles, boundary, rows)
+    if not isinstance(surface, SplineSurface):
+        # An analytic surface states its own curvature, which is exact.
+        # Measuring instead would have to average parameters across the seam,
+        # where the two rings unwrap differently and the mean is meaningless.
+        return best
+
+    for _ in range(_MAX_REFINE_STEPS):
+        if _deviation(surface, best[2], best[0], best[1]) <= tolerance:
+            break
+        if rows >= _MAX_ROWS:
+            break
+        rows = min(rows * 2, _MAX_ROWS)
+        best = _subdivide_strip(surface, uv, vertices, triangles, boundary, rows)
+    return best
+
+
 def tessellate_face(
     face: Face, tolerance: float = DEFAULT_CHORD_TOLERANCE
-) -> tuple[Mesh, str | None]:
-    """Triangulate one face.  Returns the mesh and, on failure, a reason."""
+) -> tuple[Mesh, str | None, float]:
+    """Triangulate one face.
+
+    Returns the mesh, a reason if it could not be built, and how far the
+    triangles stray from the surface.  The deviation comes back with the mesh
+    because the code that built the triangles is the only one that still knows
+    their parameters, and recovering them afterwards costs an inversion each.
+    """
     surface = face.surface
     if surface is None:
-        return Mesh(), "no surface"
+        return Mesh(), "no surface", 0.0
     if isinstance(surface, SplineSurface):
-        return Mesh(), "spline surface"
+        if not TESSELLATE_SPLINE_SURFACES:
+            return Mesh(), "spline surface (evaluation not verified)", 0.0
+        if not surface.is_evaluable:
+            return (
+                Mesh(),
+                f"no approximating spline for a {face.surface_entity.name} surface",
+                0.0,
+            )
+        anchors = [
+            vertex.position
+            for edge in face.edges()
+            for vertex in (edge.start, edge.end)
+            if vertex is not None and vertex.position is not None
+        ][:6]
+        if anchors and not surface.fits(anchors, SURFACE_FIT_TOLERANCE):
+            return Mesh(), "approximating spline does not match the face", 0.0
 
     rings: list[np.ndarray] = []
     for loop in face.loops():
         points = _loop_polyline(loop, tolerance)
         if points is None:
-            return Mesh(), "spline or missing edge in boundary"
+            return Mesh(), "spline or missing edge in boundary", 0.0
         if len(points) >= 3:
             rings.append(points)
     if not rings:
-        return Mesh(), "no usable loop"
+        return Mesh(), "no usable loop", 0.0
 
     try:
         uvs = [_to_uv(surface, ring) for ring in rings]
     except (GeometryError, ValueError):
-        return Mesh(), "surface inversion failed"
+        return Mesh(), "surface inversion failed", 0.0
 
     period = surface.u_period
     wrapping = [index for index, uv in enumerate(uvs) if _wraps(uv, period)]
 
     strip_uv: np.ndarray | None = None
+    params: np.ndarray | None = None
     boundary: set[tuple[int, int]] = set()
 
     if len(wrapping) == 2 and len(rings) == 2:
@@ -472,8 +572,9 @@ def tessellate_face(
         triangles, boundary = _stitch_ring(lower, upper, lower_uv, upper_uv)
         vertices = np.concatenate([lower, upper])
         strip_uv = np.concatenate([lower_uv, upper_uv])
+        params = strip_uv
     elif wrapping:
-        return Mesh(), "periodic face ezf3d cannot cut yet"
+        return Mesh(), "periodic face ezf3d cannot cut yet", 0.0
     elif len(rings) == 1 and not isinstance(surface, Plane):
         # A curved face is usually a band in parameter space.  Ear clipping
         # would fan across it and cut the chord; walking the two chains keeps
@@ -499,6 +600,7 @@ def tessellate_face(
                 for a, b in pairwise(chain):
                     boundary.add((min(a, b), max(a, b)))
         vertices = rings[0]
+        params = uvs[0] if len(uvs[0]) == len(vertices) else None
     else:
         order = np.argsort([-abs(_signed_area(uv)) for uv in uvs])
         outer_index = int(order[0])
@@ -518,26 +620,46 @@ def tessellate_face(
 
         ordered = [rings[outer_index], *hole_rings]
         vertices = np.concatenate(ordered)
+        params = np.concatenate([outer_uv, *hole_uvs])
         polygon_uv, origin = _bridge_holes(outer_uv, hole_uvs)
         local = ear_clip(polygon_uv)
         triangles = [(origin[a], origin[b], origin[c]) for a, b, c in local]
 
     if not triangles:
-        return Mesh(), "triangulation produced nothing"
+        return Mesh(), "triangulation produced nothing", 0.0
 
     if strip_uv is not None and boundary:
-        rows = _v_subdivisions(surface, strip_uv, tolerance)
-        if rows > 1:
-            vertices, triangles = _subdivide_strip(
-                surface, strip_uv, vertices, triangles, boundary, rows
-            )
+        vertices, triangles, params = _refine_strip(
+            surface, strip_uv, vertices, triangles, boundary, tolerance
+        )
 
     array = np.array(triangles, dtype=np.int64)
     # ASM's face sense says whether the face's outward normal agrees with its
     # surface; flip the winding when it does not.
     if not face.sense:
         array = array[:, ::-1]
-    return Mesh(vertices=vertices, triangles=array).cleaned(), None
+    mesh = Mesh(vertices=vertices, triangles=array).cleaned()
+
+    # Measured on the cleaned mesh: the ear clipper leaves a few zero-width
+    # slivers along a hole's bridge, and a sliver's centroid can sit well off
+    # the surface even though no real triangle does.
+    if isinstance(surface, Plane) or mesh.is_empty:
+        deviation = 0.0
+    elif isinstance(surface, SplineSurface):
+        deviation = _deviation(surface, params, mesh.vertices, mesh.triangles.tolist())
+    else:
+        # Analytic surfaces have an exact closed-form distance.
+        deviation = max(
+            (surface.distance_to(point) for point in mesh.corners().mean(axis=1)),
+            default=0.0,
+        )
+    if deviation > tolerance * _REJECT_FACTOR:
+        # A curved face whose parameter-space outline is monotone in neither
+        # direction falls back to a fan, and a fan cuts the chord.  Emitting
+        # those triangles would put centimetre errors into an exported mesh;
+        # reporting the face is the honest option.
+        return Mesh(), "triangulation exceeds tolerance on a curved face", deviation
+    return mesh, None, deviation
 
 
 def tessellate(
@@ -569,22 +691,17 @@ def tessellate(
                     if coedge.edge is not None:
                         coedges_per_edge[coedge.edge.index] += 1
 
-            mesh, reason = tessellate_face(face, tolerance)
+            mesh, reason, deviation = tessellate_face(face, tolerance)
             if reason is not None:
                 result.unsupported[reason] += 1
                 skipped += 1
                 continue
             result.faces_meshed += 1
             solid_mesh = solid_mesh.merged(mesh)
-
             if measure:
-                surface = face.surface
-                if surface is not None and not isinstance(surface, Plane):
-                    centroids = mesh.corners().mean(axis=1)
-                    worst = max((surface.distance_to(point) for point in centroids), default=0.0)
-                    result.max_deviation = max(result.max_deviation, worst)
-                    if worst > tolerance * 2.0:
-                        result.faces_over_tolerance += 1
+                result.max_deviation = max(result.max_deviation, deviation)
+                if deviation > tolerance * 2.0:
+                    result.faces_over_tolerance += 1
 
         solid_mesh = solid_mesh.welded().cleaned()
         brep_open = sum(1 for count in coedges_per_edge.values() if count != 2)

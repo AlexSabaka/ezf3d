@@ -103,11 +103,32 @@ class Edge(Node):
     @property
     def curve(self) -> Curve | None:
         entity = self._at(5)
-        return read_curve(entity) if entity is not None else None
+        return read_curve(entity, self.model) if entity is not None else None
 
     @property
     def curve_entity(self) -> Entity | None:
         return self._at(5)
+
+    def curve_fits(self, curve: Curve | None = None, tolerance: float = 1e-4) -> bool:
+        """Does this edge's curve actually pass through its own vertices?
+
+        A spline curve is read from an *approximating* B-spline stored beside a
+        procedural definition, and picking the wrong one out of a nest of them
+        yields a curve that looks reasonable and is centimetres off.  The edge
+        already knows two points its curve must contain, so it can say.
+        """
+        curve = curve if curve is not None else self.curve
+        if curve is None:
+            return False
+        for vertex in (self.start, self.end):
+            if vertex is None or vertex.position is None:
+                continue
+            try:
+                if curve.distance_to(vertex.position) > tolerance:
+                    return False
+            except Exception:
+                return False
+        return True
 
     @property
     def sense(self) -> bool:
@@ -246,7 +267,7 @@ class Face(Node):
     @property
     def surface(self) -> Surface | None:
         entity = self._at(6)
-        return read_surface(entity) if entity is not None else None
+        return read_surface(entity, self.model) if entity is not None else None
 
     @property
     def surface_entity(self) -> Entity | None:

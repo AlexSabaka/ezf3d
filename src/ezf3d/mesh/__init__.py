@@ -7,6 +7,7 @@ from ezf3d.mesh.polyline import (
     Wireframe,
     discretise_edge,
     edge_range,
+    usable_curve,
     wireframe,
 )
 from ezf3d.mesh.tessellate import Tessellation, ear_clip, tessellate, tessellate_face
@@ -22,5 +23,6 @@ __all__ = [
     "edge_range",
     "tessellate",
     "tessellate_face",
+    "usable_curve",
     "wireframe",
 ]

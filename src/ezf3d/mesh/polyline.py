@@ -22,6 +22,10 @@ import numpy as np
 from ezf3d.asm.brep import Edge, Shape
 from ezf3d.asm.geometry import Curve, Ellipse, GeometryError, SplineCurve, Straight
 
+#: How far an approximating spline may sit from the vertices it must contain
+#: before it is treated as the wrong curve rather than a rough one.
+SPLINE_FIT_TOLERANCE = 1e-4
+
 #: Default chord tolerance, in kernel units (cm).  0.1 mm is finer than any
 #: display resolution these renders reach and coarse enough to stay quick.
 DEFAULT_CHORD_TOLERANCE = 0.01
@@ -86,6 +90,22 @@ def _segment_count(curve: Curve, span: float, tolerance: float) -> int:
     return 1
 
 
+def usable_curve(edge: Edge) -> Curve | None:
+    """The edge's curve, or ``None`` when it cannot be trusted.
+
+    Analytic curves are taken as read; a spline is only accepted once it is
+    seen to pass through the edge's own vertices.
+    """
+    curve = edge.curve
+    if curve is None:
+        return None
+    if isinstance(curve, SplineCurve) and (
+        not curve.is_evaluable or not edge.curve_fits(curve, SPLINE_FIT_TOLERANCE)
+    ):
+        return None
+    return curve
+
+
 def edge_range(edge: Edge) -> tuple[float, float] | None:
     """The edge's extent in its curve's parameterisation, direction included.
 
@@ -138,11 +158,11 @@ def discretise_edge(
     """
     if edge.is_degenerate:
         return None
-    curve = edge.curve
+    curve = usable_curve(edge)
     ends = edge.endpoints()
     if ends is None:
         return None
-    if curve is None or isinstance(curve, SplineCurve):
+    if curve is None:
         if not chords or edge.is_closed:
             return None
         return np.stack(ends)
@@ -173,8 +193,7 @@ def wireframe(
     """Discretise every edge reachable from a body."""
     result = Wireframe()
     for edge in shape.edges():
-        curve = edge.curve
-        unsupported = curve is None or isinstance(curve, SplineCurve)
+        unsupported = usable_curve(edge) is None
         line = discretise_edge(edge, tolerance, chords=chords)
         if line is None:
             if unsupported and not edge.is_degenerate:

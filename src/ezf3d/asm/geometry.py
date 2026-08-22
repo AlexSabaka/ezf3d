@@ -20,8 +20,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ezf3d.asm.records import Entity
-from ezf3d.asm.tokens import Tag
+from ezf3d.asm.records import AsmModel, Entity
+from ezf3d.asm.spline import BSplineCurve, BSplineSurface, SplineError, find_spline
+from ezf3d.asm.tokens import Record, Tag
+
+_TYPE_TAGS = (Tag.ENTITY_TYPE, Tag.ENTITY_TYPE_EX)
+#: How far to follow ``ref`` chains looking for an approximating spline.
+_MAX_REF_DEPTH = 6
 
 Vec = np.ndarray
 
@@ -449,28 +454,248 @@ class Torus(Surface):
         return abs(math.hypot(radial - abs(self.major_radius), height) - abs(self.minor_radius))
 
 
+def _blocks_in(tokens: Record, start: int, end: int) -> list[tuple[str, int, int]]:
+    """``(kind, body_start, body_end)`` for every bracket in ``[start, end)``.
+
+    Ordered by where each block *opens*.  Collecting them as they close puts
+    the innermost first, which silently makes "the entity's own definition"
+    mean "something nested inside it".
+    """
+    found: list[tuple[int, str, int, int]] = []
+    opened: list[int] = []
+    for i in range(start, min(end, len(tokens))):
+        tag = tokens[i][0]
+        if tag == Tag.SUBTYPE_START:
+            opened.append(i)
+        elif tag == Tag.SUBTYPE_END and opened:
+            begin = opened.pop()
+            if begin + 1 < len(tokens) and tokens[begin + 1][0] in _TYPE_TAGS:
+                found.append((begin, str(tokens[begin + 1][1]), begin + 1, i))
+    found.sort()
+    return [(kind, body_start, body_end) for _, kind, body_start, body_end in found]
+
+
+def _definition(model: AsmModel | None, entity: Entity) -> tuple[Record, int, int] | None:
+    """The block that defines *entity*, following an interning reference."""
+    tokens = entity.tokens
+    for kind, start, end in _blocks_in(tokens, 0, len(tokens)):
+        if kind == "ref":
+            if model is None or start + 1 >= len(tokens):
+                return None
+            block = model.resolve_subtype(int(tokens[start + 1][1]))  # type: ignore[arg-type]
+            return (block.tokens, block.start, block.end) if block else None
+        return tokens, start, end
+    return None
+
+
+def _approximation(model: AsmModel | None, entity: Entity, *, surface: bool, dimension: int = 3):
+    """Find the B-spline that approximates *entity*'s geometry.
+
+    ASM writes spline geometry procedurally — a blend, an offset, a helical
+    sweep — and stores an approximating B-spline beside it, which is what the
+    kernel draws.  That approximation is what gets evaluated here; where it
+    sits behind further references, they are followed.
+    """
+    located = _definition(model, entity)
+    if located is None:
+        return None
+    tokens, start, end = located
+
+    queue = [(tokens, start, end)]
+    seen: set[tuple[int, int, int]] = set()
+    for _ in range(_MAX_REF_DEPTH):
+        pending: list[tuple[Record, int, int]] = []
+        for block_tokens, block_start, block_end in queue:
+            key = (id(block_tokens), block_start, block_end)
+            if key in seen:
+                continue
+            seen.add(key)
+            spline = find_spline(
+                block_tokens, block_start, block_end, surface=surface, dimension=dimension
+            )
+            if spline is not None:
+                return spline
+            if model is None:
+                continue
+            for kind, inner_start, _inner_end in _blocks_in(block_tokens, block_start, block_end):
+                if kind != "ref" or inner_start + 1 >= len(block_tokens):
+                    continue
+                target = model.resolve_subtype(int(block_tokens[inner_start + 1][1]))  # type: ignore[arg-type]
+                if target is not None:
+                    pending.append((target.tokens, target.start, target.end))
+        if not pending:
+            break
+        queue = pending
+    return None
+
+
 @dataclass(slots=True)
 class SplineSurface(Surface):
-    """Placeholder for a spline surface, which Phase 2.4 will evaluate.
-
-    Carried rather than dropped so a face backed by one can be reported as
-    unsupported instead of silently vanishing.
-    """
+    """A procedural ASM surface, evaluated through its approximating B-spline."""
 
     entity: Entity
+    spline: BSplineSurface | None = None
+    #: Cached parameter/point grid, built on first inversion.
+    _grid: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+
+    @property
+    def is_evaluable(self) -> bool:
+        return self.spline is not None
+
+    @property
+    def fit_tolerance(self) -> float:
+        """How closely the approximation tracks the true surface, per ASM."""
+        return self.spline.fit_tolerance if self.spline else 0.0
+
+    def _require(self) -> BSplineSurface:
+        if self.spline is None:
+            raise GeometryError(f"no approximating B-spline for this {self.entity.name} surface")
+        return self.spline
+
+    def point_at(self, u: float, v: float) -> Vec:
+        return self._require().point_at(u, v)
+
+    @property
+    def u_period(self) -> float | None:
+        return None
+
+    @property
+    def v_radius(self) -> float | None:
+        return None
+
+    def _sample_grid(self, steps: int = 24):
+        if self._grid is None:
+            spline = self._require()
+            us = np.linspace(*spline.u_domain, steps)
+            vs = np.linspace(*spline.v_domain, steps)
+            points = np.array([[spline.point_at(u, v) for v in vs] for u in us])
+            self._grid = (us, vs, points)
+        return self._grid
+
+    def invert(self, point: Vec) -> tuple[float, float]:
+        """Nearest parameters, found on a cached grid and then refined.
+
+        A procedural surface has no closed-form inverse, so this samples once
+        per surface and reuses that grid for every subsequent lookup — a face's
+        boundary needs one inversion per point and would otherwise re-sample
+        the whole patch each time.
+        """
+        spline = self._require()
+        us, vs, grid = self._sample_grid()
+        flat = grid.reshape(-1, 3)
+        best = int(np.argmin(((flat - point) ** 2).sum(axis=1)))
+        i, j = divmod(best, len(vs))
+        u, v = float(us[i]), float(vs[j])
+
+        du = (us[-1] - us[0]) / (len(us) - 1)
+        dv = (vs[-1] - vs[0]) / (len(vs) - 1)
+        for _ in range(28):
+            du *= 0.5
+            dv *= 0.5
+            improved = False
+            best_distance = float(np.linalg.norm(spline.point_at(u, v) - point))
+            for candidate_u, candidate_v in (
+                (u + du, v),
+                (u - du, v),
+                (u, v + dv),
+                (u, v - dv),
+                (u + du, v + dv),
+                (u - du, v - dv),
+                (u + du, v - dv),
+                (u - du, v + dv),
+            ):
+                cu = min(max(candidate_u, spline.u_domain[0]), spline.u_domain[1])
+                cv = min(max(candidate_v, spline.v_domain[0]), spline.v_domain[1])
+                distance = float(np.linalg.norm(spline.point_at(cu, cv) - point))
+                if distance < best_distance:
+                    best_distance, u, v, improved = distance, cu, cv, True
+            if not improved and du < 1e-9:
+                break
+        return u, v
 
     def distance_to(self, point: Vec) -> float:
-        raise GeometryError("spline surface evaluation is not implemented yet")
+        u, v = self.invert(point)
+        return float(np.linalg.norm(self.point_at(u, v) - point))
+
+    def near(self, point: Vec) -> float:
+        """Distance to the nearest sample on the cached grid.
+
+        A lower bound good enough to reject a surface without paying for a
+        full inversion, which is what makes validating every candidate
+        affordable.
+        """
+        if self.spline is None:
+            return float("inf")
+        _us, _vs, grid = self._sample_grid()
+        flat = grid.reshape(-1, 3)
+        return float(np.sqrt(((flat - point) ** 2).sum(axis=1).min()))
+
+    def fits(self, points, tolerance: float) -> bool:
+        """Do these points lie on this surface?
+
+        A procedural surface stores an approximating B-spline beside it, and
+        several may sit nested in one block.  Picking the wrong one yields a
+        surface that evaluates cleanly and is nowhere near the face — so the
+        face's own vertices are asked before it is trusted.
+        """
+        if self.spline is None:
+            return False
+        try:
+            return all(self.near(point) <= tolerance for point in points)
+        except (GeometryError, ValueError):
+            return False
 
 
 @dataclass(slots=True)
 class SplineCurve(Curve):
-    """Placeholder for an ``intcurve`` / ``pcurve``; see :class:`SplineSurface`."""
+    """An ``intcurve`` or ``pcurve``, evaluated through its approximation."""
 
     entity: Entity
+    spline: BSplineCurve | None = None
+
+    @property
+    def is_evaluable(self) -> bool:
+        return self.spline is not None
+
+    @property
+    def fit_tolerance(self) -> float:
+        return self.spline.fit_tolerance if self.spline else 0.0
+
+    def _require(self) -> BSplineCurve:
+        if self.spline is None:
+            raise GeometryError(f"no approximating B-spline for this {self.entity.name} curve")
+        return self.spline
 
     def point_at(self, t: float) -> Vec:
-        raise GeometryError("spline curve evaluation is not implemented yet")
+        return self._require().point_at(t)
+
+    def points_at(self, ts: np.ndarray) -> np.ndarray:
+        spline = self._require()
+        return np.array([spline.point_at(float(t)) for t in ts])
+
+    @property
+    def domain(self) -> tuple[float, float]:
+        return self._require().domain
+
+    def invert(self, point: Vec) -> float:
+        """Nearest parameter, by dense sampling and then bisection."""
+        spline = self._require()
+        lo, hi = spline.domain
+        ts = np.linspace(lo, hi, 96)
+        samples = np.array([spline.point_at(float(t)) for t in ts])
+        best = int(np.argmin(((samples - point) ** 2).sum(axis=1)))
+        left = ts[max(best - 1, 0)]
+        right = ts[min(best + 1, len(ts) - 1)]
+        for _ in range(48):
+            middle = 0.5 * (left + right)
+            step = max((right - left) * 0.25, 1e-12)
+            if np.linalg.norm(spline.point_at(middle - step) - point) < np.linalg.norm(
+                spline.point_at(middle + step) - point
+            ):
+                right = middle
+            else:
+                left = middle
+        return 0.5 * (left + right)
 
 
 # -- readers ---------------------------------------------------------------
@@ -480,7 +705,7 @@ ANALYTIC_CURVE_NAMES = frozenset({"straight", "ellipse"})
 ANALYTIC_SURFACE_NAMES = frozenset({"plane", "cone", "sphere", "torus"})
 
 
-def read_curve(entity: Entity) -> Curve:
+def read_curve(entity: Entity, model: AsmModel | None = None) -> Curve:
     """Build a :class:`Curve` from a ``curve``-based entity."""
     positions, directions, reals, _ = _unpack(entity)
     name = entity.name
@@ -494,11 +719,16 @@ def read_curve(entity: Entity) -> Curve:
             ratio=reals[0],
         )
     if name in ("intcurve", "pcurve"):
-        return SplineCurve(entity=entity)
+        dimension = 2 if name == "pcurve" else 3
+        try:
+            spline = _approximation(model, entity, surface=False, dimension=dimension)
+        except (SplineError, IndexError, ValueError, TypeError):
+            spline = None
+        return SplineCurve(entity=entity, spline=spline)
     raise GeometryError(f"unsupported curve class {name!r}")
 
 
-def read_surface(entity: Entity) -> Surface:
+def read_surface(entity: Entity, model: AsmModel | None = None) -> Surface:
     """Build a :class:`Surface` from a ``surface``-based entity."""
     positions, directions, reals, _ = _unpack(entity)
     name = entity.name
@@ -533,5 +763,9 @@ def read_surface(entity: Entity) -> Surface:
             u_ref=_normalise(directions[1]),
         )
     if name == "spline":
-        return SplineSurface(entity=entity)
+        try:
+            spline = _approximation(model, entity, surface=True)
+        except (SplineError, IndexError, ValueError, TypeError):
+            spline = None
+        return SplineSurface(entity=entity, spline=spline)
     raise GeometryError(f"unsupported surface class {name!r}")
