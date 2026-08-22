@@ -22,14 +22,15 @@ from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
 from ezf3d.container.archive import UnsupportedCompressionError
+from ezf3d.export.writers import CM_TO_MM, FORMATS, ExportError, write_mesh
 from ezf3d.inspect import body_infos, document_info
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
 from ezf3d.render.camera import Camera
 from ezf3d.render.png import write as png_write
-from ezf3d.render.raster import Style, ink_bounds, render_lines
-from ezf3d.render.scene import build_scene, contact_sheet
+from ezf3d.render.raster import Style, ink_bounds, render_lines, render_mesh
+from ezf3d.render.scene import build_mesh, build_scene, contact_sheet
 from ezf3d.streams.primitives import StreamError, scan_strings
 
 app = typer.Typer(
@@ -44,7 +45,15 @@ FileArg = Annotated[Path, typer.Argument(help="A .f3d or .f3z file.", exists=Tru
 JsonOpt = Annotated[bool, typer.Option("--json", help="Emit the JSON envelope.")]
 
 #: Failures that mean "this file is not what we expected", not a crash.
-READ_ERRORS = (Ef3dError, StreamError, AsmError, UnsupportedCompressionError, KeyError, OSError)
+READ_ERRORS = (
+    Ef3dError,
+    StreamError,
+    AsmError,
+    UnsupportedCompressionError,
+    ExportError,
+    KeyError,
+    OSError,
+)
 
 
 def _emit(command: str, source: Path, payload: Any, as_json: bool) -> None:
@@ -489,6 +498,9 @@ def render(
         bool,
         typer.Option("--chords", help="Draw not-yet-evaluable curves as straight chords."),
     ] = False,
+    shaded: Annotated[
+        bool, typer.Option("--shaded", help="Tessellate and render solid surfaces.")
+    ] = False,
 ) -> None:
     """Draw a wireframe of the design's edges to a PNG."""
     try:
@@ -501,8 +513,9 @@ def render(
     try:
         with readfile(path) as doc:
             scene = build_scene(doc, tolerance=tolerance, body=body, chords=chords)
-            if scene.is_empty:
-                raise Ef3dError("nothing to draw: no evaluable edges in this design")
+            tessellation = build_mesh(doc, tolerance=tolerance, body=body) if shaded else None
+            if scene.is_empty and (tessellation is None or tessellation.mesh.is_empty):
+                raise Ef3dError("nothing to draw: no evaluable geometry in this design")
             frames = max(turntable, 0)
             columns = 1 if frames <= 1 else min(frames, 3)
             tile = (
@@ -510,21 +523,29 @@ def render(
                 if frames > 1
                 else pixels
             )
+            framing = (
+                tessellation.mesh.vertices
+                if tessellation is not None and not tessellation.mesh.is_empty
+                else scene.points()
+            )
             base = Camera.fit_points(
-                scene.points(),
+                framing,
                 view=view,
                 width=tile[0],
                 height=tile[1],
                 perspective=perspective,
             )
+
+            def draw(camera: Camera):
+                if tessellation is None:
+                    return render_lines(scene.segments, camera)
+                return render_mesh(tessellation.mesh, camera, edges=scene.segments)
+
             if frames > 1:
                 step = 2 * math.pi / frames
-                image = contact_sheet(
-                    [render_lines(scene.segments, base.orbit(i * step)) for i in range(frames)],
-                    columns,
-                )
+                image = contact_sheet([draw(base.orbit(i * step)) for i in range(frames)], columns)
             else:
-                image = render_lines(scene.segments, base)
+                image = draw(base)
             out.parent.mkdir(parents=True, exist_ok=True)
             written = png_write(out, image)
     except READ_ERRORS as exc:
@@ -546,6 +567,8 @@ def render(
         "skipped": scene.skipped,
         "ink_bounds": list(ink) if ink else None,
         "unplaced": scene.unplaced,
+        "shaded": shaded,
+        "triangles": len(tessellation.mesh) if tessellation is not None else 0,
     }
     if as_json:
         _emit("render", path, payload, True)
@@ -570,6 +593,120 @@ def render(
         console.print(
             "[yellow]bodies are drawn in their own local coordinates[/] [dim]— component "
             "placement lives in the design segment (Phase 3); use --body for one part[/]"
+        )
+
+
+# -- mesh ------------------------------------------------------------------
+
+
+def _tessellation_payload(result, tolerance: float) -> dict[str, Any]:
+    mesh = result.mesh
+    bounds = mesh.bounds()
+    return {
+        "tolerance_cm": tolerance,
+        "triangles": len(mesh),
+        "vertices": len(mesh.vertices),
+        "faces_meshed": result.faces_meshed,
+        "faces_skipped": result.faces_skipped,
+        "unsupported": dict(sorted(result.unsupported.items())),
+        "solids": result.solids,
+        "closed_candidates": result.closed_candidates,
+        "watertight_solids": result.watertight_solids,
+        "max_deviation_cm": round(result.max_deviation, 9),
+        "faces_over_tolerance": result.faces_over_tolerance,
+        "area_cm2": round(mesh.area(), 6) if not mesh.is_empty else 0.0,
+        "bounds_cm": (
+            {"min": [round(v, 6) for v in bounds[0]], "max": [round(v, 6) for v in bounds[1]]}
+            if bounds
+            else None
+        ),
+    }
+
+
+@app.command()
+def mesh(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    body: Annotated[
+        str | None, typer.Option("--body", help="Only this body, by UUID prefix.")
+    ] = None,
+    tolerance: Annotated[
+        float, typer.Option("--tolerance", help="Chord tolerance in cm.")
+    ] = DEFAULT_CHORD_TOLERANCE,
+) -> None:
+    """Tessellate the design's faces and report the result."""
+    try:
+        with readfile(path) as doc:
+            result = build_mesh(doc, tolerance=tolerance, body=body)
+    except READ_ERRORS as exc:
+        _fail("mesh", path, exc, as_json)
+        return
+
+    payload = _tessellation_payload(result, tolerance)
+    if as_json:
+        _emit("mesh", path, payload, True)
+        return
+
+    console.print(
+        f"[bold]{payload['triangles']:,}[/] triangles from "
+        f"[bold]{result.faces_meshed:,}[/] faces "
+        f"[dim](chord tolerance {tolerance} cm, worst deviation "
+        f"{result.max_deviation:.2e} cm)[/]"
+    )
+    console.print(
+        f"[dim]solids[/] {result.solids}  "
+        f"[dim]watertight[/] {result.watertight_solids}/{result.closed_candidates} "
+        f"[dim]of those closed in the B-Rep and fully meshed[/]"
+    )
+    for reason, count in sorted(result.unsupported.items(), key=lambda item: -item[1]):
+        console.print(f"[yellow]{count:5d}[/] faces skipped [dim]— {reason}[/]")
+
+
+# -- export ----------------------------------------------------------------
+
+
+@app.command()
+def export(
+    path: FileArg,
+    out: Annotated[Path, typer.Option("--out", "-o", help="Destination file.")],
+    as_json: JsonOpt = False,
+    fmt: Annotated[
+        str, typer.Option("--format", "-f", help=f"One of: {', '.join(FORMATS)}.")
+    ] = "stl",
+    body: Annotated[
+        str | None, typer.Option("--body", help="Only this body, by UUID prefix.")
+    ] = None,
+    tolerance: Annotated[
+        float, typer.Option("--tolerance", help="Chord tolerance in cm.")
+    ] = DEFAULT_CHORD_TOLERANCE,
+    unit: Annotated[str, typer.Option("--unit", help="Output unit: mm or cm.")] = "mm",
+) -> None:
+    """Tessellate and write the mesh as STL, OBJ or glTF."""
+    scale = CM_TO_MM if unit == "mm" else 1.0
+    try:
+        if unit not in ("mm", "cm"):
+            raise ExportError(f"unknown --unit {unit!r}; expected mm or cm")
+        with readfile(path) as doc:
+            result = build_mesh(doc, tolerance=tolerance, body=body)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            written = write_mesh(result.mesh, out, fmt, scale=scale, name=doc.name)
+    except READ_ERRORS as exc:
+        _fail("export", path, exc, as_json)
+        return
+
+    payload = _tessellation_payload(result, tolerance)
+    payload.update({"out": str(out), "format": fmt, "bytes": written, "unit": unit})
+    if as_json:
+        _emit("export", path, payload, True)
+        return
+    console.print(
+        f"wrote [cyan]{out}[/] [dim]{fmt}, {_si(written)}[/] · "
+        f"{payload['triangles']:,} triangles in {unit}"
+    )
+    if result.faces_skipped:
+        console.print(
+            f"[yellow]{result.faces_skipped} faces missing[/] "
+            f"[dim]— {', '.join(sorted(result.unsupported))}[/]"
         )
 
 
