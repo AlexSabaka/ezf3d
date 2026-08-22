@@ -581,8 +581,9 @@ def render(
     )
     if scene.omitted:
         console.print(
-            f"[yellow]{scene.omitted} edges omitted[/] [dim]— spline curves land in "
-            f"Phase 2.4; --chords draws them as straight lines[/]"
+            f"[yellow]{scene.omitted} edges omitted[/] [dim]— no approximating "
+            f"spline, or one that misses the edge's own vertices; --chords "
+            f"draws them as straight lines[/]"
         )
     if scene.approximated:
         console.print(
