@@ -104,7 +104,7 @@ def _may_be_null(base: str, slot: int, pointers: list[int]) -> bool:
     return True
 
 
-def test_every_topology_pointer_lands_on_the_right_class(sample):
+def test_every_topology_pointer_lands_on_the_right_class(opened):
     """The load-bearing traversal check.
 
     Pointers index the main-section entity list, which excludes the rollback
@@ -113,27 +113,27 @@ def test_every_topology_pointer_lands_on_the_right_class(sample):
     wrong things -- so the *type* of the target is what has to be asserted.
     """
     wrong = []
-    with ezf3d.readfile(sample) as doc:
-        for child in doc.documents():
-            for body in child.bodies:
-                model = body.model()
-                for entity in model.entities:
-                    contract = POINTER_CONTRACT.get(entity.base)
-                    if contract is None:
+    doc = opened
+    for child in doc.documents():
+        for body in child.bodies:
+            model = body.model()
+            for entity in model.entities:
+                contract = POINTER_CONTRACT.get(entity.base)
+                if contract is None:
+                    continue
+                pointers = entity.pointers()
+                for slot, expected in contract.items():
+                    if slot >= len(pointers):
                         continue
-                    pointers = entity.pointers()
-                    for slot, expected in contract.items():
-                        if slot >= len(pointers):
-                            continue
-                        if pointers[slot] == NULL and _may_be_null(entity.base, slot, pointers):
-                            continue
-                        target = model.resolve(pointers[slot])
-                        if target is None or target.base != expected:
-                            got = target.name if target else None
-                            wrong.append(
-                                f"{body.uuid[:8]} {entity.base}#{entity.index} "
-                                f"slot {slot}: expected {expected}, got {got}"
-                            )
+                    if pointers[slot] == NULL and _may_be_null(entity.base, slot, pointers):
+                        continue
+                    target = model.resolve(pointers[slot])
+                    if target is None or target.base != expected:
+                        got = target.name if target else None
+                        wrong.append(
+                            f"{body.uuid[:8]} {entity.base}#{entity.index} "
+                            f"slot {slot}: expected {expected}, got {got}"
+                        )
     assert not wrong, f"{len(wrong)} bad pointer(s), first few:\n" + "\n".join(wrong[:5])
 
 
