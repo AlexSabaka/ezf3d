@@ -7,6 +7,7 @@ data for humans.
 
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -22,8 +23,13 @@ from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
 from ezf3d.container.archive import UnsupportedCompressionError
 from ezf3d.inspect import body_infos, document_info
+from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
+from ezf3d.render.camera import Camera
+from ezf3d.render.png import write as png_write
+from ezf3d.render.raster import Style, ink_bounds, render_lines
+from ezf3d.render.scene import build_scene, contact_sheet
 from ezf3d.streams.primitives import StreamError, scan_strings
 
 app = typer.Typer(
@@ -453,6 +459,118 @@ def _raw_payload(entry: str, data: bytes, mode: str, limit: int) -> dict[str, An
     else:
         raise Ef3dError(f"unknown --mode {mode!r}; use auto, hex, strings or tokens")
     return {"entry": entry, "bytes": len(data), "mode": mode, "lines": lines}
+
+
+# -- render ----------------------------------------------------------------
+
+
+@app.command()
+def render(
+    path: FileArg,
+    out: Annotated[Path, typer.Option("--out", "-o", help="Destination PNG.")],
+    as_json: JsonOpt = False,
+    view: Annotated[
+        str, typer.Option("--view", help="iso, front, back, left, right, top or bottom.")
+    ] = "iso",
+    body: Annotated[
+        str | None, typer.Option("--body", help="Render one body by UUID prefix.")
+    ] = None,
+    size: Annotated[str, typer.Option("--size", help="Output size as WIDTHxHEIGHT.")] = "1024x768",
+    tolerance: Annotated[
+        float, typer.Option("--tolerance", help="Chord tolerance in cm.")
+    ] = DEFAULT_CHORD_TOLERANCE,
+    turntable: Annotated[
+        int, typer.Option("--turntable", help="Tile this many orbiting views.")
+    ] = 0,
+    perspective: Annotated[
+        bool, typer.Option("--perspective", help="Perspective instead of orthographic.")
+    ] = False,
+    chords: Annotated[
+        bool,
+        typer.Option("--chords", help="Draw not-yet-evaluable curves as straight chords."),
+    ] = False,
+) -> None:
+    """Draw a wireframe of the design's edges to a PNG."""
+    try:
+        width, _, height = size.partition("x")
+        pixels = (int(width), int(height))
+    except ValueError:
+        _fail("render", path, Ef3dError(f"bad --size {size!r}; expected WIDTHxHEIGHT"), as_json)
+        return
+
+    try:
+        with readfile(path) as doc:
+            scene = build_scene(doc, tolerance=tolerance, body=body, chords=chords)
+            if scene.is_empty:
+                raise Ef3dError("nothing to draw: no evaluable edges in this design")
+            frames = max(turntable, 0)
+            columns = 1 if frames <= 1 else min(frames, 3)
+            tile = (
+                (pixels[0] // columns, pixels[1] // max(1, (frames + columns - 1) // columns))
+                if frames > 1
+                else pixels
+            )
+            base = Camera.fit_points(
+                scene.points(),
+                view=view,
+                width=tile[0],
+                height=tile[1],
+                perspective=perspective,
+            )
+            if frames > 1:
+                step = 2 * math.pi / frames
+                image = contact_sheet(
+                    [render_lines(scene.segments, base.orbit(i * step)) for i in range(frames)],
+                    columns,
+                )
+            else:
+                image = render_lines(scene.segments, base)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            written = png_write(out, image)
+    except READ_ERRORS as exc:
+        _fail("render", path, exc, as_json)
+        return
+
+    ink = ink_bounds(image, Style().background)
+    payload = {
+        "out": str(out),
+        "bytes": written,
+        "size": [image.shape[1], image.shape[0]],
+        "view": view,
+        "frames": max(turntable, 1),
+        "bodies": scene.bodies,
+        "polylines": scene.polylines,
+        "segments": len(scene.segments),
+        "chord_approximated": scene.approximated,
+        "omitted": scene.omitted,
+        "skipped": scene.skipped,
+        "ink_bounds": list(ink) if ink else None,
+        "unplaced": scene.unplaced,
+    }
+    if as_json:
+        _emit("render", path, payload, True)
+        return
+
+    console.print(
+        f"wrote [cyan]{out}[/] [dim]{image.shape[1]}x{image.shape[0]}, "
+        f"{_si(written)}[/] · {scene.bodies} bodies, "
+        f"{len(scene.segments):,} segments"
+    )
+    if scene.omitted:
+        console.print(
+            f"[yellow]{scene.omitted} edges omitted[/] [dim]— spline curves land in "
+            f"Phase 2.4; --chords draws them as straight lines[/]"
+        )
+    if scene.approximated:
+        console.print(
+            f"[yellow]{scene.approximated} edges drawn as straight chords[/] "
+            f"[dim]— approximate, not real geometry[/]"
+        )
+    if scene.unplaced:
+        console.print(
+            "[yellow]bodies are drawn in their own local coordinates[/] [dim]— component "
+            "placement lives in the design segment (Phase 3); use --body for one part[/]"
+        )
 
 
 # -- version ---------------------------------------------------------------
