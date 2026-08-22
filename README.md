@@ -4,9 +4,9 @@ Read Autodesk Fusion 360 `.f3d` / `.f3z` designs **without running Fusion**. A
 pip-installable Python library and CLI, in the spirit of
 [`ezdxf`](https://github.com/mozman/ezdxf) — `ezf3d.readfile(path)` and you're in.
 
-**Status:** alpha. Reading, inspection, B-Rep traversal, analytic geometry and wireframe
-rendering work today. Face tessellation, spline evaluation, feature-graph transpilation
-and simulation are on the roadmap below.
+**Status:** alpha. Reading, inspection, B-Rep traversal, analytic geometry, tessellation,
+mesh export and offscreen rendering work today. Spline evaluation, feature-graph
+transpilation and simulation are on the roadmap below.
 
 Exercised against four real designs: 42 B-Rep bodies, 99.8 MB of Shape Manager data,
 every file walked to its terminator with no unknown tokens. The geometry layer is checked
@@ -83,8 +83,10 @@ Full notes live in [`docs/format/`](docs/format/).
   surface evaluation.
 - **Phase 2.2 — wireframe render.** ✅ adaptive edge discretisation and a pure-numpy
   offscreen rasteriser.
-- **Phase 2.3–2.5 — solids.** Face tessellation with STL/OBJ/glTF export, spline
-  (`nubs`/`nurbs`) evaluation, and the OGS cached-mesh fast path.
+- **Phase 2.3 — tessellation & export.** ✅ trimmed analytic faces, shaded rendering,
+  STL/OBJ/glTF.
+- **Phase 2.4–2.5 — the rest of the geometry.** Spline (`nubs`/`nurbs`) evaluation, and
+  the OGS cached-mesh fast path.
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
   tree, joints, materials.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
@@ -94,6 +96,19 @@ Full notes live in [`docs/format/`](docs/format/).
 
 Writing modified geometry back into `.f3d` is an explicit non-goal; headless iteration
 happens through the transpile path.
+
+## Development
+
+```bash
+uv run pytest                  # everything, ~2.5 min over 100 MB of sample CAD
+uv run pytest -m "not slow"    # the inner loop, ~1 min
+uv run ruff check . && uv run ruff format --check .
+```
+
+Tests run against real designs rather than fixtures, and check the format against its own
+internal redundancy — a curve evaluated at its edge's parameter must reach the vertex, a
+face's triangles must lie on the surface the face names. The `slow` marker covers the
+exhaustive sweeps that walk every face of every body.
 
 ## License
 

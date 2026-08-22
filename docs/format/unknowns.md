@@ -36,6 +36,22 @@ enforced by tests rather than only described here: a pointer contract in
 `tests/test_asm.py`, and in `tests/test_geometry.py` the check that every vertex lies on
 its edge's curve to within the kernel's own tolerance.
 
+## Tessellation gaps (ezf3d's, not the format's)
+
+Two limitations in ezf3d's own triangulation, recorded here so they are not mistaken for
+format problems:
+
+**Faces with several holes can leave non-manifold edges.** Bridging a hole into its outer
+loop cuts the polygon so the ear clipper can see one outline, and on a face with five
+holes the cuts occasionally overlap. 108 of 144 closed, fully meshed solids come out
+watertight; the rest carry a handful of edges used more than twice. `ezf3d mesh` reports
+the rate rather than assuming it.
+
+**Notched regions on a curved surface fall back to a fan.** A face whose parameter-space
+outline is monotone in neither direction cannot be walked as a strip, and a fan cuts the
+chord. 12 of 6,109 cone faces across the samples; they are counted in
+`faces_over_tolerance`.
+
 ## Header words of unclear role
 
 - Document manifest: `u32 20` and a third word (`53` / `18`), plus a magic
