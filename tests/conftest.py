@@ -91,3 +91,29 @@ def opened_design(design: Path, _open_documents):
     if design not in _open_documents:
         _open_documents[design] = ezf3d.readfile(design)
     return _open_documents[design]
+
+
+@pytest.fixture(scope="session")
+def _tessellation_cache():
+    """Tessellations, computed once per sample.
+
+    Triangulating every body of every sample is the other expensive thing this
+    suite does, after parsing.  Several tests want the same result, so it is
+    computed once and shared; tests only read.
+    """
+    return {}
+
+
+@pytest.fixture
+def tessellated(opened, sample: Path, _tessellation_cache):
+    """Every body of the current sample, tessellated at the default tolerance."""
+    from ezf3d.asm.brep import Shape
+    from ezf3d.mesh import tessellate
+
+    if sample not in _tessellation_cache:
+        _tessellation_cache[sample] = [
+            tessellate(Shape(body.model()), measure=False)
+            for child in opened.documents()
+            for body in child.bodies
+        ]
+    return _tessellation_cache[sample]

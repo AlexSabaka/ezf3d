@@ -27,6 +27,7 @@ SUCKER_PLAIN = {
 }
 
 
+@pytest.mark.slow
 def test_every_body_tokenizes_to_the_end_marker(sample):
     with ezf3d.readfile(sample) as doc:
         bodies = doc.bodies
@@ -104,6 +105,7 @@ def _may_be_null(base: str, slot: int, pointers: list[int]) -> bool:
     return True
 
 
+@pytest.mark.slow
 def test_every_topology_pointer_lands_on_the_right_class(opened):
     """The load-bearing traversal check.
 

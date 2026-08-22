@@ -67,3 +67,6 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+# The exhaustive sweeps walk every face of every sample body — the bulk of the
+# suite's runtime. They run by default; `-m "not slow"` is the inner loop.
+markers = ["slow: exhaustive sweep over every body in every sample design"]

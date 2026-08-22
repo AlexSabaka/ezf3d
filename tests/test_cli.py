@@ -203,3 +203,54 @@ def test_render_rejects_a_bad_size(wheel, tmp_path: Path):
     )
     assert code == 1
     assert json.loads(out)["ok"] is False
+
+
+def test_mesh_reports_what_it_built(wheel):
+    data = payload("mesh", str(wheel))["data"]
+    assert data["triangles"] > 0
+    assert data["faces_meshed"] > 0
+    assert data["solids"] > 0
+    assert data["max_deviation_cm"] <= data["tolerance_cm"] * 2
+    assert data["faces_over_tolerance"] == 0
+    assert data["bounds_cm"]["min"] < data["bounds_cm"]["max"]
+    # Spline faces are named, not silently missing.
+    assert set(data["unsupported"]) or data["faces_skipped"] == 0
+
+
+def test_mesh_tolerance_changes_the_density(wheel):
+    coarse = payload("mesh", str(wheel), "--tolerance", "0.05")["data"]
+    fine = payload("mesh", str(wheel), "--tolerance", "0.005")["data"]
+    assert fine["triangles"] > coarse["triangles"]
+    assert fine["max_deviation_cm"] < coarse["max_deviation_cm"]
+
+
+def test_export_writes_each_format(wheel, tmp_path: Path):
+    for fmt, suffix in (("stl", "stl"), ("obj", "obj"), ("glb", "glb")):
+        out = tmp_path / f"m.{suffix}"
+        data = payload("export", str(wheel), "--out", str(out), "-f", fmt)["data"]
+        assert data["bytes"] == out.stat().st_size
+        assert data["format"] == fmt
+        assert data["triangles"] > 0
+
+
+def test_export_rejects_an_unknown_format(wheel, tmp_path: Path):
+    code, out = invoke("export", str(wheel), "--out", str(tmp_path / "m.x"), "-f", "step", "--json")
+    assert code == 1
+    assert "unknown format" in json.loads(out)["error"]
+
+
+def test_export_unit_option(wheel, tmp_path: Path):
+    code, out = invoke(
+        "export", str(wheel), "--out", str(tmp_path / "m.obj"), "--unit", "furlong", "--json"
+    )
+    assert code == 1
+    assert json.loads(out)["ok"] is False
+
+
+def test_shaded_render_draws_triangles(wheel, tmp_path: Path):
+    out = tmp_path / "shaded.png"
+    data = payload("render", str(wheel), "--out", str(out), "--shaded", "--size", "320x240")["data"]
+    assert data["shaded"] is True
+    assert data["triangles"] > 0
+    assert out.read_bytes().startswith(b"\x89PNG")
+    assert data["ink_bounds"] is not None

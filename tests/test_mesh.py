@@ -8,6 +8,7 @@ the vertices exactly, and the chord sag must respect the tolerance asked for.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from ezf3d.asm.brep import Shape
 from ezf3d.asm.geometry import SplineCurve
@@ -27,6 +28,7 @@ def _evaluable(shape: Shape):
         yield edge, curve
 
 
+@pytest.mark.slow
 def test_every_sample_lies_on_its_curve(opened):
     worst = 0.0
     checked = 0
@@ -44,6 +46,7 @@ def test_every_sample_lies_on_its_curve(opened):
     assert checked
 
 
+@pytest.mark.slow
 def test_polylines_meet_their_vertices_exactly(opened):
     """Adjacent edges must share an endpoint, or a mesh will not close."""
     checked = 0
@@ -62,6 +65,7 @@ def test_polylines_meet_their_vertices_exactly(opened):
     assert checked
 
 
+@pytest.mark.slow
 def test_chord_sag_respects_the_requested_tolerance(opened):
     """Halving the tolerance must actually refine the curve."""
     tolerance = DEFAULT_CHORD_TOLERANCE

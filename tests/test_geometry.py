@@ -56,6 +56,7 @@ def _analytic_edges(model):
         yield edge, curve, start, end
 
 
+@pytest.mark.slow
 def test_every_vertex_lies_on_its_edge_curve(opened):
     """The headline check for the geometry layer, and it is convention-free.
 
@@ -88,6 +89,7 @@ def test_every_vertex_lies_on_its_edge_curve(opened):
     )
 
 
+@pytest.mark.slow
 def test_stored_parameters_agree_with_the_vertices_unless_sentinel(opened):
     """Where the stored range is real, ``t -> sense * t`` reproduces the vertex.
 
@@ -143,6 +145,7 @@ def test_reversed_edges_evaluate_at_negated_parameter(opened):
         pytest.skip("no reversed edge in this sample where the sign is decisive")
 
 
+@pytest.mark.slow
 def test_vertices_lie_on_their_face_surface(opened):
     """Each face's vertices must sit on the surface the face names.
 
