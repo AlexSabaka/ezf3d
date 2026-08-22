@@ -152,3 +152,54 @@ def test_commands_render_for_humans(command, wheel):
     code, out = invoke(command, str(wheel))
     assert code == 0
     assert out.strip()
+
+
+def test_render_writes_a_png_and_reports_what_it_drew(bhujha, tmp_path: Path):
+    out = tmp_path / "render.png"
+    data = payload("render", str(bhujha), "--out", str(out), "--view", "front")["data"]
+    assert out.read_bytes().startswith(b"\x89PNG")
+    assert data["bytes"] == out.stat().st_size
+    assert data["size"] == [1024, 768]
+    assert data["segments"] > 0
+    assert data["ink_bounds"] is not None
+    # This design has spline edges, which are left out rather than faked.
+    assert data["omitted"] > 0
+    assert data["chord_approximated"] == 0
+    # More than one body means no assembly placement; the caller is told.
+    assert data["unplaced"] is True
+
+
+def test_render_chords_flag_adds_the_omitted_edges(sucker, tmp_path: Path):
+    plain = payload("render", str(sucker), "--out", str(tmp_path / "a.png"))["data"]
+    chorded = payload("render", str(sucker), "--out", str(tmp_path / "b.png"), "--chords")["data"]
+    assert plain["omitted"] > 0
+    assert chorded["chord_approximated"] == plain["omitted"]
+    assert chorded["polylines"] > plain["polylines"]
+
+
+def test_render_single_body_is_placed(wheel, tmp_path: Path):
+    import ezf3d as _ezf3d
+
+    with _ezf3d.readfile(wheel) as doc:
+        uuid = doc.bodies[0].uuid[:8]
+    data = payload("render", str(wheel), "--out", str(tmp_path / "one.png"), "--body", uuid)["data"]
+    assert data["bodies"] == 1
+    assert data["unplaced"] is False
+
+
+def test_render_turntable_makes_a_contact_sheet(wheel, tmp_path: Path):
+    out = tmp_path / "sheet.png"
+    data = payload(
+        "render", str(wheel), "--out", str(out), "--turntable", "4", "--size", "600x400"
+    )["data"]
+    assert data["frames"] == 4
+    # Four frames in a 3-wide grid is two rows.
+    assert data["size"] == [600, 400]
+
+
+def test_render_rejects_a_bad_size(wheel, tmp_path: Path):
+    code, out = invoke(
+        "render", str(wheel), "--out", str(tmp_path / "x.png"), "--size", "huge", "--json"
+    )
+    assert code == 1
+    assert json.loads(out)["ok"] is False
