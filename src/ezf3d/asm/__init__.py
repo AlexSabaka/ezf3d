@@ -5,7 +5,15 @@ Autodesk's entity vocabulary and — in ``ASM BinaryFile8`` — 64-bit pointers.
 """
 
 from ezf3d.asm.header import AsmError, AsmHeader, read_header
-from ezf3d.asm.records import NULL, AsmModel, Entity, parse
+from ezf3d.asm.records import (
+    END_MARKER,
+    HISTORY_BEGIN_MARKER,
+    HISTORY_END_MARKER,
+    NULL,
+    AsmModel,
+    Entity,
+    parse,
+)
 from ezf3d.asm.tokens import Record, Tag, TokenError, tokenize
 from ezf3d.asm.topology import (
     ANALYTIC_CURVES,
@@ -19,6 +27,9 @@ from ezf3d.asm.topology import (
 __all__ = [
     "ANALYTIC_CURVES",
     "ANALYTIC_SURFACES",
+    "END_MARKER",
+    "HISTORY_BEGIN_MARKER",
+    "HISTORY_END_MARKER",
     "KERNEL_UNIT",
     "NULL",
     "AsmError",

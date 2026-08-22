@@ -1,8 +1,23 @@
 """Entity graph over a tokenized ASM stream.
 
-SAB pointers are *record indices*: token ``POINTER=10`` means "entity 10 in
-this file", and ``-1`` is null.  That makes resolution a list lookup, and the
-whole file a flat array of entities with an implicit graph over it.
+SAB pointers are indices into the file's **main-section** entities: token
+``POINTER=10`` means "the eleventh model entity in this file", and ``-1`` is
+null.  Two things make that different from "the eleventh record":
+
+*Section markers are prefixes, not records of their own.*  ``Begin of ASM
+History Data`` and ``End of ASM History Section`` are five type tokens glued
+onto the front of a real entity, with no record terminator between them -- the
+history-end marker is followed by a ``face`` and its fields in the same record.
+Dropping such a record would lose an entity and shift every index after it.
+
+*The rollback-history block is not addressable.*  A ``.smbh`` body embeds its
+history section mid-file (a ``history_stream`` followed by ``delta_state``
+records).  Those records occupy the stream but not the pointer space, and their
+own pointers live in a separate index space, so they must not be walked as
+topology.
+
+:attr:`AsmModel.entities` therefore holds exactly the addressable entities, in
+pointer order, and history records go to :attr:`AsmModel.history`.
 
 An entity's leading tokens are its class chain, written most-derived first::
 
@@ -28,10 +43,14 @@ if TYPE_CHECKING:
 #: Null pointer value.
 NULL = -1
 
-#: Record that closes an ASM stream.
+#: Type chain of the record that closes an ASM stream.  Unlike the section
+#: markers this one stands alone, with no entity behind it.
 END_MARKER = ("End", "of", "ASM", "data")
-#: Record that closes the rollback-history section of a ``.smbh`` body.
-HISTORY_MARKER = ("End", "of", "ASM", "History", "Section")
+#: Prefix that opens the rollback-history section of a ``.smbh`` body.
+HISTORY_BEGIN_MARKER = ("Begin", "of", "ASM", "History", "Data")
+#: Prefix that closes it.  The entity behind this prefix is a model entity
+#: again -- the marker ends the section, it does not belong to it.
+HISTORY_END_MARKER = ("End", "of", "ASM", "History", "Section")
 
 _TYPE_TAGS = (Tag.ENTITY_TYPE, Tag.ENTITY_TYPE_EX)
 
@@ -90,6 +109,9 @@ class AsmModel:
 
     header: AsmHeader
     entities: list[Entity] = field(default_factory=list)
+    #: Records of the rollback-history block.  Kept for inspection, excluded
+    #: from :attr:`entities` because pointers do not address them.
+    history: list[Entity] = field(default_factory=list)
     #: True when the stream carried a rollback-history section (``.smbh``).
     has_history: bool = False
     #: True when the walk reached ``End of ASM data``.  A body that parses
@@ -104,7 +126,12 @@ class AsmModel:
         return self.entities[index]
 
     def resolve(self, pointer: int) -> Entity | None:
-        """Follow a pointer field; ``None`` for null or out-of-range."""
+        """Follow a pointer field; ``None`` for null or out-of-range.
+
+        :attr:`entities` is in pointer order by construction, so this is a
+        list lookup -- see the module docstring for why that is not the same
+        as indexing by record ordinal.
+        """
         if pointer == NULL or not 0 <= pointer < len(self.entities):
             return None
         return self.entities[pointer]
@@ -121,29 +148,43 @@ class AsmModel:
         return Counter(e.name for e in self.entities if e.name)
 
 
-def _starts_with(types: tuple[str, ...], marker: tuple[str, ...]) -> bool:
-    return len(types) >= len(marker) and types[: len(marker)] == marker
-
-
-def _ends_with(types: tuple[str, ...], marker: tuple[str, ...]) -> bool:
-    return len(types) >= len(marker) and types[-len(marker) :] == marker
+def _strip_prefix(
+    types: tuple[str, ...], record: Record, marker: tuple[str, ...]
+) -> tuple[tuple[str, ...], Record] | None:
+    """Remove *marker* from the front of a record, or ``None`` if absent."""
+    if len(types) < len(marker) or types[: len(marker)] != marker:
+        return None
+    return types[len(marker) :], record[len(marker) :]
 
 
 def parse(data: bytes) -> AsmModel:
     """Parse an ASM/SAB stream into an :class:`AsmModel`."""
     header = read_header(data)
     model = AsmModel(header=header)
+    in_history = False
+
     for index, record in enumerate(tokenize(data, header.body_offset, header.word_size)):
         types = _split_types(record)
-        # A body with history can pack both markers into one record, with no
-        # record terminator between them, so neither test excludes the other.
-        is_history = _starts_with(types, HISTORY_MARKER)
-        is_end = _ends_with(types, END_MARKER)
-        if is_history:
+
+        stripped = _strip_prefix(types, record, HISTORY_BEGIN_MARKER)
+        if stripped is not None:
+            in_history = True
             model.has_history = True
-        if is_end:
+            types, record = stripped
+        else:
+            stripped = _strip_prefix(types, record, HISTORY_END_MARKER)
+            if stripped is not None:
+                in_history = False
+                model.has_history = True
+                types, record = stripped
+
+        # A short body can pack a section marker and the terminator into one
+        # record, so the terminator is tested after any prefix is removed.
+        if types == END_MARKER:
             model.terminated = True
-        if is_history or is_end:
             continue
-        model.entities.append(Entity(index=index, types=types, tokens=record))
+
+        entity = Entity(index=index, types=types, tokens=record)
+        (model.history if in_history else model.entities).append(entity)
+
     return model

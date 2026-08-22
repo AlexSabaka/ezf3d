@@ -46,12 +46,12 @@ Every command takes `--json` for machine consumption.
 import ezf3d
 
 with ezf3d.readfile("Design.f3d") as doc:
-    doc.manifest.doc_type                 # 'Fusion Document'
-    doc.design.bulk.feature_types()       # Counter({'ExtrudeFeature': 9, 'Sketch': 8, ...})
-    body = doc.bodies[0]                  # nothing parsed yet - bodies load lazily
-    body.model().header.kernel_release    # '232.4.0.65535'
-    body.census().faces                   # 2006
-    body.census().analytic_only           # True -> tessellable without a spline kernel
+    doc.manifest.doc_type  # 'Fusion Document'
+    doc.design.bulk.feature_types()  # Counter({'ExtrudeFeature': 9, 'Sketch': 8, ...})
+    body = doc.bodies[0]  # nothing parsed yet - bodies load lazily
+    body.model().header.kernel_release  # '232.4.0.65535'
+    body.census().faces  # 2006
+    body.census().analytic_only  # True -> tessellable without a spline kernel
 ```
 
 `.f3z` packages resolve their reference graph: `readfile` returns the root design, with

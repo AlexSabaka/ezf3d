@@ -11,7 +11,7 @@ import pytest
 
 import ezf3d
 from ezf3d.asm import parse, read_header
-from ezf3d.asm.records import END_MARKER
+from ezf3d.asm.records import END_MARKER, NULL
 
 #: Topology of SUCKER's plain body, from a complete walk.  These numbers pin
 #: the token grammar: a regression that stops early lowers every one of them.
@@ -43,6 +43,23 @@ def test_every_body_tokenizes_to_the_end_marker(sample):
             assert model.terminated, f"{body.uuid}: walk did not reach {END_MARKER}"
 
 
+def test_section_markers_do_not_swallow_the_entity_behind_them(sucker):
+    """``End of ASM History Section`` is a prefix on a real record.
+
+    Treating it as a standalone record loses that entity and shifts every
+    index after it.
+    """
+    with ezf3d.readfile(sucker) as doc:
+        body = next(b for b in doc.bodies if b.has_history)
+        model = body.model()
+    # The record carrying the history-end prefix is a face; it must survive as
+    # a face, with the marker stripped rather than the record dropped.
+    boundary = max(e.index for e in model.history)
+    carrier = next(e for e in model.entities if e.index > boundary)
+    assert carrier.base == "face", f"entity after the history block is {carrier.types}"
+    assert "Section" not in carrier.types
+
+
 def test_history_flag_matches_the_file_extension(sample):
     """``.smbh`` is ASM-with-history; the stream should say so too."""
     with ezf3d.readfile(sample) as doc:
@@ -57,6 +74,82 @@ def test_pointers_resolve_within_the_file(design):
         for entity in model.entities:
             for target in entity.links():
                 assert model.resolve(target) is not None, f"{entity.name} -> {target}"
+
+
+#: Which base class each positional pointer of a topology record must land on.
+#: Resolving in range is not enough -- a wrong-but-in-range index looks
+#: identical until you check the type, which is exactly how the history-block
+#: indexing bug survived the first release.
+POINTER_CONTRACT = {
+    "edge": {2: "vertex", 3: "vertex", 5: "curve"},
+    "coedge": {2: "coedge", 3: "coedge", 5: "edge", 6: "loop"},
+    "loop": {3: "coedge", 4: "face"},
+    "face": {3: "loop", 4: "shell", 6: "surface"},
+    "shell": {4: "face", 6: "lump"},
+    "lump": {3: "shell", 4: "body"},
+    "vertex": {2: "edge", 3: "point"},
+}
+
+#: Slots ACIS is allowed to leave null.  ``vertex -> edge`` is a convenience
+#: back-reference, not a structural link, and a degenerate edge -- a cone apex
+#: or sphere pole, where both vertices coincide -- genuinely has no curve.
+NULLABLE = {("vertex", 2), ("edge", 5)}
+
+
+def _may_be_null(base: str, slot: int, pointers: list[int]) -> bool:
+    if (base, slot) not in NULLABLE:
+        return False
+    if base == "edge":
+        return len(pointers) > 3 and pointers[2] == pointers[3]  # degenerate
+    return True
+
+
+def test_every_topology_pointer_lands_on_the_right_class(sample):
+    """The load-bearing traversal check.
+
+    Pointers index the main-section entity list, which excludes the rollback
+    history block and counts marker-prefixed records as the entities they
+    carry.  Get any of that wrong and pointers still resolve -- just to the
+    wrong things -- so the *type* of the target is what has to be asserted.
+    """
+    wrong = []
+    with ezf3d.readfile(sample) as doc:
+        for child in doc.documents():
+            for body in child.bodies:
+                model = body.model()
+                for entity in model.entities:
+                    contract = POINTER_CONTRACT.get(entity.base)
+                    if contract is None:
+                        continue
+                    pointers = entity.pointers()
+                    for slot, expected in contract.items():
+                        if slot >= len(pointers):
+                            continue
+                        if pointers[slot] == NULL and _may_be_null(entity.base, slot, pointers):
+                            continue
+                        target = model.resolve(pointers[slot])
+                        if target is None or target.base != expected:
+                            got = target.name if target else None
+                            wrong.append(
+                                f"{body.uuid[:8]} {entity.base}#{entity.index} "
+                                f"slot {slot}: expected {expected}, got {got}"
+                            )
+    assert not wrong, f"{len(wrong)} bad pointer(s), first few:\n" + "\n".join(wrong[:5])
+
+
+def test_history_records_are_kept_out_of_the_pointer_space(sample):
+    """``.smbh`` bodies embed a rollback block that pointers do not address."""
+    with ezf3d.readfile(sample) as doc:
+        with_history = [b for b in doc.bodies if b.has_history]
+        if not with_history:
+            pytest.skip("no body with rollback history in this sample")
+        for body in with_history:
+            model = body.model()
+            assert model.has_history
+            assert model.history, f"{body.uuid}: history flagged but no records captured"
+            # The block is delta bookkeeping, not model topology.
+            assert {e.base for e in model.history} <= {"delta_state", "history_stream"}
+            assert not any(e.base == "face" for e in model.history)
 
 
 def test_sucker_topology_census_is_stable(sucker):

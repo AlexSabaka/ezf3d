@@ -134,4 +134,3 @@ def tokenize(data: bytes, start: int, word_size: int = 8) -> Iterator[Record]:
 
     if record:
         yield record
-

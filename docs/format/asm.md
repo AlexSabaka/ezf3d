@@ -71,14 +71,35 @@ class chain written **most-derived first**:
         POSITION=(-1.838, 12.203, 8.575)  DIRECTION=(0, -0, -1)  DIRECTION=(0.5, 0.866, 0)
 ```
 
-**Pointers are record indices** — `POINTER=13` means entity 13 in this file, and `-1` is
-null. The whole file is a flat array with an implicit graph over it, so resolution is a
-list lookup.
+### Pointers and the sections that break naive indexing
 
-The stream ends with `End of ASM data`. In a `.smbh` the history marker can share a
-record with it, without an intervening terminator, so neither test may exclude the other.
-`AsmModel.terminated` records whether the walk actually reached the end — a body that
-parses without error but stops short was only partly understood.
+`POINTER=13` means "the fourteenth **addressable entity** in this file", and `-1` is null.
+That is not the same as the fourteenth *record*, for two reasons — and getting either
+wrong yields pointers that still resolve, just to the wrong things.
+
+**Section markers are prefixes, not records.** `Begin of ASM History Data` and
+`End of ASM History Section` are five type tokens glued onto the front of a real entity,
+with no record terminator between them:
+
+```
+[27768] End of ASM History Section  face  POINTER=27725  INT=-1  POINTER=-1 …
+```
+
+That record *is* a face. Dropping it loses an entity and shifts every index after it.
+Only `End of ASM data` stands alone, and a short body can pack a section marker and the
+terminator into the same record.
+
+**The rollback-history block is not addressable.** A `.smbh` embeds its history section
+mid-file — a `history_stream` followed by `delta_state` records (in one body, records
+25006–25136). Those occupy the stream but not the pointer space, and their own pointers
+live in a separate index space, so they must not be walked as topology. Brute-forcing a
+constant pointer offset on that body gives **0 before the block and 131 after — exactly
+the block size**.
+
+`AsmModel.entities` therefore holds the addressable entities in pointer order and
+`AsmModel.history` holds the rest. `AsmModel.terminated` records whether the walk reached
+`End of ASM data`; a body that parses without error but stops short was only partly
+understood.
 
 ## Topology and geometry
 
@@ -87,6 +108,37 @@ The ACIS hierarchy, unchanged:
 ```
 body → lump → shell → face → loop → coedge → edge → vertex → point
 ```
+
+Field layouts, determined by resolving every pointer slot across every sample body and
+counting what it lands on. Shapes are **uniform across ASM 231 (32-bit) and ASM 232
+(64-bit)** — one shape per class, with a rare extra trailing bool on `face`. `?` marks a
+slot that is null in every observed file.
+
+| Class | Pointer slots and inline fields |
+|---|---|
+| `body` | attrib, ?, lump, wire, transform |
+| `lump` | attrib, ?, next, shell, body |
+| `shell` | attrib, ?, next, subshell, face, wire, lump |
+| `face` | attrib, ?, next, loop, shell, subshell, **surface**, `sense`, `sides` |
+| `loop` | attrib, ?, next, coedge, face |
+| `coedge` | attrib, ?, next, prev, partner, **edge**, `sense`, loop, int, pcurve |
+| `edge` | attrib, ?, **start vertex**, `f64 t0`, **end vertex**, `f64 t1`, coedge, **curve**, `sense`, str |
+| `vertex` | attrib, ?, edge, int, point |
+| `point` | attrib, ?, `position` |
+
+**Edges carry their parameter range on the curve** — `t0` and `t1` are inline doubles
+between the vertex pointers. Discretising an edge needs nothing beyond its curve and
+those two numbers.
+
+Two slots are legitimately null. `vertex → edge` is a convenience back-reference, not a
+structural link: one sample vertex leaves it null while four edges reference the vertex.
+And a **degenerate edge** — a cone apex or sphere pole, where start and end vertex are the
+same entity — has no curve at all; there are 169 such edges across the samples.
+
+**Tolerant topology** appears as `tedge` (578), `tvertex` (913) and `tcoedge` (4276).
+Each derives from its base class with the same pointer layout plus trailing tolerance
+fields, so resolving by *base* class handles them without special cases. A `tcoedge`
+almost always carries a pcurve.
 
 Geometry hangs off it as `surface` and `curve` subclasses:
 

@@ -26,6 +26,13 @@ module.
 **Unlocks:** an index into the bulk stream, so records can be found by id rather than
 scanned for.
 
+## Resolved since first writing
+
+The ASM topology field layouts, the pointer index space (main-section entities, history
+block excluded, markers as prefixes), tolerant topology, and degenerate edges are all
+decoded — see [asm.md](asm.md#topology-and-geometry). They are enforced by a pointer
+contract in `tests/test_asm.py` rather than only described here.
+
 ## Header words of unclear role
 
 - Document manifest: `u32 20` and a third word (`53` / `18`), plus a magic

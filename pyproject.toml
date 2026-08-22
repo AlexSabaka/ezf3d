@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ezf3d"
-version = "0.1.0"
+version = "0.1.1"
 description = "Headless reader for Autodesk Fusion 360 .f3d / .f3z designs — no Fusion required"
 readme = "README.md"
 license = { file = "LICENSE" }
