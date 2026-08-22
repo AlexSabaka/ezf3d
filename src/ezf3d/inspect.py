@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ezf3d.asm.brep import Shape
+from ezf3d.asm.geometry import SplineSurface
 from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.topology import KERNEL_UNIT
 from ezf3d.model.document import Asset, Body, Document
@@ -146,6 +148,14 @@ def body_info(document: Document, asset: Asset, body: Body) -> BodyInfo:
             unit=KERNEL_UNIT,
         )
 
+    shape = Shape(model)
+    live_faces = list(shape.faces())
+    analytic = sum(
+        1
+        for face in live_faces
+        if face.surface_entity is not None and not isinstance(face.surface, SplineSurface)
+    )
+
     return BodyInfo(
         uuid=body.uuid,
         path=body.path,
@@ -165,6 +175,10 @@ def body_info(document: Document, asset: Asset, body: Body) -> BodyInfo:
         analytic_only=stats.analytic_only,
         vertex_bounds=bounds,
         referenced_by_design=referenced,
+        solids=sum(1 for _ in shape.solids()),
+        live_faces=len(live_faces),
+        live_edges=sum(1 for _ in shape.edges()),
+        analytic_faces=analytic,
     )
 
 

@@ -133,6 +133,16 @@ class BodyInfo(BaseModel):
     #: Bounds of the B-Rep vertices; faces may bulge outside them.
     vertex_bounds: BoundsInfo | None = None
     referenced_by_design: bool = False
+    #: Distinct solids, after collapsing the duplicate ``body`` records a
+    #: rolled-back design leaves behind.
+    solids: int = 0
+    #: Faces and edges reachable from a body.  Lower than the record counts
+    #: above when rollback history has left stale topology in the file.
+    live_faces: int = 0
+    live_edges: int = 0
+    #: Reachable faces whose surface ezf3d can evaluate today: everything
+    #: except splines, which land in Phase 2.4.
+    analytic_faces: int = 0
 
 
 DocumentInfo.model_rebuild()

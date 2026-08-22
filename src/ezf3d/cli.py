@@ -243,34 +243,41 @@ def bodies(
         return
 
     table = Table(header_style="bold", box=None, pad_edge=False)
-    columns = ("body", "doc", "kind", "size", "B/L/S", "F/E/V", "surfaces", "curves", "extent cm")
+    columns = ("body", "doc", "kind", "size", "solids", "faces", "edges", "surfaces", "extent cm")
     for column in columns:
         table.add_column(column, overflow="fold")
     for row in rows:
-        t = row.topology
         surfaces = ", ".join(f"{k} {v}" for k, v in sorted(row.surfaces.items()))
         if row.spline_fraction:
             surfaces += f"  [yellow]({row.spline_fraction:.0%} spline)[/]"
-        curves = ", ".join(f"{k} {v}" for k, v in sorted(row.curves.items()))
         extent = (
             " × ".join(f"{v:.2f}" for v in row.vertex_bounds.size) if row.vertex_bounds else "—"
         )
+        stale_faces = row.topology.get("face", 0) - row.live_faces
+        faces = f"{row.live_faces}"
+        if stale_faces > 0:
+            faces += f" [dim]+{stale_faces} stale[/]"
+        if row.analytic_faces < row.live_faces:
+            faces += f"\n[yellow]{row.analytic_faces} analytic[/]"
         table.add_row(
             f"{row.uuid[:8]} [dim].{row.suffix}[/]",
             row.document,
             "history" if row.has_history else "plain",
             _si(row.size),
-            f"{t.get('body', 0)}/{t.get('lump', 0)}/{t.get('shell', 0)}",
-            f"{t.get('face', 0)}/{t.get('edge', 0)}/{t.get('vertex', 0)}",
+            str(row.solids),
+            faces,
+            str(row.live_edges),
             surfaces or "[dim]—[/]",
-            curves or "[dim]—[/]",
             extent,
         )
     console.print(table)
     analytic = sum(1 for r in rows if r.analytic_only)
+    live = sum(r.live_faces for r in rows)
+    evaluable = sum(r.analytic_faces for r in rows)
     console.print(
-        f"[dim]{len(rows)} bodies · {analytic} fully analytic "
-        f"(exactly tessellable without a spline kernel)[/]"
+        f"[dim]{len(rows)} bodies · {analytic} fully analytic · "
+        f"{evaluable}/{live} faces have an evaluable surface today "
+        f"(splines land in Phase 2.4)[/]"
     )
 
 
