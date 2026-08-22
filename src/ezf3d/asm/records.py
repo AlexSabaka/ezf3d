@@ -103,6 +103,31 @@ def _split_types(record: Record) -> tuple[str, ...]:
     return tuple(names)
 
 
+@dataclass(frozen=True, slots=True)
+class SubtypeBlock:
+    """One bracketed ``0x0F … 0x10`` block, and where its tokens live.
+
+    ASM interns repeated spline definitions: a block is written out once and
+    later referred to as ``ref <n>``.  The index space is **every bracketed
+    block in the file, at any nesting depth, in order, excluding the ``ref``
+    blocks themselves** — a rule that only shows itself when checked against
+    what the references have to mean, since every candidate numbering puts the
+    indices in range and only one makes a surface reference land on a surface.
+    """
+
+    index: int
+    kind: str
+    owner: int
+    #: Token range of the block's body, excluding the brackets.
+    start: int
+    end: int
+    tokens: Record
+
+    @property
+    def body(self) -> Record:
+        return self.tokens[self.start : self.end]
+
+
 @dataclass(slots=True)
 class AsmModel:
     """A parsed ASM body file."""
@@ -114,6 +139,8 @@ class AsmModel:
     history: list[Entity] = field(default_factory=list)
     #: True when the stream carried a rollback-history section (``.smbh``).
     has_history: bool = False
+    #: Lazily built index of interned spline definitions.
+    _subtypes: list[SubtypeBlock] | None = field(default=None, repr=False)
     #: True when the walk reached ``End of ASM data``.  A body that parses
     #: without error but is not terminated was only partly understood, so this
     #: is the honest check that the token grammar covered the whole file.
@@ -146,6 +173,57 @@ class AsmModel:
     def counts(self) -> Counter[str]:
         """Census by concrete class name."""
         return Counter(e.name for e in self.entities if e.name)
+
+    def subtypes(self) -> list[SubtypeBlock]:
+        """Every bracketed subtype block, in the order ``ref`` indexes them."""
+        if self._subtypes is None:
+            self._subtypes = _collect_subtypes(self.entities)
+        return self._subtypes
+
+    def resolve_subtype(self, index: int) -> SubtypeBlock | None:
+        table = self.subtypes()
+        if not 0 <= index < len(table):
+            return None
+        return table[index]
+
+
+def _matching_end(tokens: Record, start: int) -> int:
+    """Index of the ``SUBTYPE_END`` that closes the bracket opened at *start*."""
+    depth = 0
+    for i in range(start, len(tokens)):
+        tag = tokens[i][0]
+        if tag == Tag.SUBTYPE_START:
+            depth += 1
+        elif tag == Tag.SUBTYPE_END:
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(tokens)
+
+
+def _collect_subtypes(entities: list[Entity]) -> list[SubtypeBlock]:
+    table: list[SubtypeBlock] = []
+    for entity in entities:
+        tokens = entity.tokens
+        for i, (tag, _value) in enumerate(tokens):
+            if tag != Tag.SUBTYPE_START:
+                continue
+            if i + 1 >= len(tokens) or tokens[i + 1][0] not in _TYPE_TAGS:
+                continue
+            kind = str(tokens[i + 1][1])
+            if kind == "ref":
+                continue  # a reference is not a definition
+            table.append(
+                SubtypeBlock(
+                    index=len(table),
+                    kind=kind,
+                    owner=entity.index,
+                    start=i + 1,
+                    end=_matching_end(tokens, i),
+                    tokens=tokens,
+                )
+            )
+    return table
 
 
 def _strip_prefix(
