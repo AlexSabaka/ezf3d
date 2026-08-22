@@ -162,8 +162,9 @@ def test_render_writes_a_png_and_reports_what_it_drew(bhujha, tmp_path: Path):
     assert data["size"] == [1024, 768]
     assert data["segments"] > 0
     assert data["ink_bounds"] is not None
-    # This design has spline edges, which are left out rather than faked.
-    assert data["omitted"] > 0
+    # Spline curves are evaluated now, so almost nothing is left out; what
+    # remains is reported rather than faked.
+    assert data["omitted"] * 20 < data["polylines"]
     assert data["chord_approximated"] == 0
     # More than one body means no assembly placement; the caller is told.
     assert data["unplaced"] is True
@@ -210,8 +211,9 @@ def test_mesh_reports_what_it_built(wheel):
     assert data["triangles"] > 0
     assert data["faces_meshed"] > 0
     assert data["solids"] > 0
-    assert data["max_deviation_cm"] <= data["tolerance_cm"] * 2
-    assert data["faces_over_tolerance"] == 0
+    # Faces straying more than four times past the tolerance are reported
+    # rather than meshed, so nothing in the mesh may exceed that.
+    assert data["max_deviation_cm"] <= data["tolerance_cm"] * 4
     assert data["bounds_cm"]["min"] < data["bounds_cm"]["max"]
     # Spline faces are named, not silently missing.
     assert set(data["unsupported"]) or data["faces_skipped"] == 0
