@@ -168,8 +168,60 @@ exactly with no spline kernel at all.
 
 Spline geometry is wrapped in `0x0F` … `0x10` brackets holding nested subtypes
 (`int_int_cur`, `exp_par_cur`, `nubs`, `ref`). The brackets nest and always balance, so a
-record's extent is knowable without understanding the geometry inside it — which is why
-the whole file walks even though the splines are not yet evaluated.
+record's extent is knowable without understanding the geometry inside it.
+
+## Splines
+
+ASM writes spline geometry **procedurally** — `int_int_cur`, `exp_par_cur`,
+`srf_srf_v_bl_spl_sur`, `cyl_spl_sur`, `off_spl_sur`, `rb_blend_spl_sur`, `helix_spl_line`
+— and stores an **approximating B-spline** inside the same block, which is what the
+kernel itself draws. Evaluating that approximation renders a blend without
+reimplementing the blend, and each block records its own fit tolerance so the error is
+known rather than assumed.
+
+### `nubs` and `nurbs`
+
+```
+nubs                            nurbs adds a weight after each control point
+  int    degree                 (a surface writes two: u then v)
+  …      form and closure       one enum for a curve, four for a surface,
+                                sometimes preceded by a name token like `both`
+  int    distinct knot count    (two for a surface: u then v)
+  n x (double knot, int multiplicity)
+  control points, dimension x count doubles
+  double fit tolerance
+```
+
+Two things make this readable without knowing which block one is inside:
+
+**Curves and surfaces are told apart by shape.** A curve writes one degree followed by a
+form enum; a surface writes two degrees. Checking whether the second and third tokens are
+both integers settles it.
+
+**The control count follows from the knots**, and holds across every sample with no
+exceptions:
+
+```
+n_control = Σ(stored multiplicities) + 2 − degree − 1
+```
+
+The `+ 2` is there because ASM stores the clamped knot vector one multiplicity short at
+each end. Adding one back at both ends is what makes
+`len(knots) == n_control + degree + 1` come out right. Control points are **3D for
+model-space curves and 2D for parameter-space curves** (`par_int_cur`, `pcurve`).
+
+### Interning: the `ref` table
+
+A definition that repeats is written once and referred to afterwards as
+`{ ref <n> }` — 18,236 references across the sample designs. The index counts **every
+bracketed block, at any nesting depth, in file order, excluding the `ref` blocks
+themselves**, 0-based.
+
+That rule was not obvious: several plausible numberings put every index in range, so
+"nothing overflows" proves nothing. What settles it is asking what a reference has to
+*mean* — a `spline` **surface** record's reference must name a surface. Counting inline
+field names as entries gets 4 of 21; counting bracketed blocks gets 21 of 21, and across
+all four designs every one of the 1,569 surface references lands on a surface.
 
 ## Attributes
 

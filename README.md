@@ -85,8 +85,10 @@ Full notes live in [`docs/format/`](docs/format/).
   offscreen rasteriser.
 - **Phase 2.3 — tessellation & export.** ✅ trimmed analytic faces, shaded rendering,
   STL/OBJ/glTF.
-- **Phase 2.4–2.5 — the rest of the geometry.** Spline (`nubs`/`nurbs`) evaluation, and
-  the OGS cached-mesh fast path.
+- **Phase 2.4 — splines.** ✅ for curves: `nubs`/`nurbs` reading, de Boor evaluation, and
+  the interning table. Spline *surfaces* are read but not yet trusted — see
+  [docs/format/unknowns.md](docs/format/unknowns.md).
+- **Phase 2.5 — the OGS cached-mesh fast path.**
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
   tree, joints, materials.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC

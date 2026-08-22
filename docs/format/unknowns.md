@@ -36,6 +36,25 @@ enforced by tests rather than only described here: a pointer contract in
 `tests/test_asm.py`, and in `tests/test_geometry.py` the check that every vertex lies on
 its edge's curve to within the kernel's own tolerance.
 
+## Spline surface identification
+
+**Status: unresolved, and gated off because of it.**
+
+Reading a `nubs`/`nurbs` surface works — the localised tensor-product evaluation is
+bit-identical to the full sum. What is not established is **which** approximating spline
+belongs to a given face. A procedural block nests several, and the one ezf3d picks for a
+`spline` face sits, even sampled at 80x80, a median 2.4e-02 cm from the face's own
+vertices — far outside any fit tolerance the file states. Tessellating it produced worse
+geometry than leaving the face out, so `TESSELLATE_SPLINE_SURFACES` is `False` and those
+faces are reported as unsupported.
+
+Spline **curves** are unaffected and are used: an edge knows two points its curve must
+contain, so an approximation is validated before being trusted, and 94 % of spline edges
+pass with a worst miss of 8.3e-05 cm.
+
+**Unlocks:** the last ~4 % of faces on the sample designs, and complete meshes for
+spline-heavy parts.
+
 ## Tessellation gaps (ezf3d's, not the format's)
 
 Two limitations in ezf3d's own triangulation, recorded here so they are not mistaken for
