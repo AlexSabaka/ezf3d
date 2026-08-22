@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ezf3d.asm.brep import Shape
+from ezf3d.mesh.mesh import Mesh
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE, wireframe
+from ezf3d.mesh.tessellate import Tessellation, tessellate
 from ezf3d.model.document import Body, Document
 
 
@@ -61,14 +63,7 @@ def build_scene(
     *body* selects a single body by UUID prefix, which is the only way to get a
     correctly positioned picture until component placement is decoded.
     """
-    chosen: list[Body] = []
-    for child in document.documents():
-        for candidate in child.bodies:
-            if body is None or candidate.uuid.startswith(body):
-                chosen.append(candidate)
-    if body is not None and not chosen:
-        raise KeyError(f"no body matching {body!r}")
-
+    chosen: list[Body] = chosen_bodies(document, body)
     scene = Scene(bodies=len(chosen))
     pieces: list[np.ndarray] = []
     for item in chosen:
@@ -84,6 +79,46 @@ def build_scene(
         scene.segments = np.concatenate(pieces)
     scene.unplaced = len(chosen) > 1
     return scene
+
+
+def chosen_bodies(document: Document, body: str | None) -> list[Body]:
+    """Bodies of *document*, or the one whose UUID starts with *body*."""
+    chosen = [
+        candidate
+        for child in document.documents()
+        for candidate in child.bodies
+        if body is None or candidate.uuid.startswith(body)
+    ]
+    if body is not None and not chosen:
+        raise KeyError(f"no body matching {body!r}")
+    return chosen
+
+
+def build_mesh(
+    document: Document,
+    *,
+    tolerance: float = DEFAULT_CHORD_TOLERANCE,
+    body: str | None = None,
+) -> Tessellation:
+    """Tessellate the document's bodies into one :class:`Tessellation`.
+
+    Like :func:`build_scene`, this places nothing: bodies are in their own
+    local coordinates until component placement is decoded.
+    """
+    total = Tessellation()
+    merged = Mesh()
+    for item in chosen_bodies(document, body):
+        part = tessellate(Shape(item.model()), tolerance)
+        total.faces_meshed += part.faces_meshed
+        total.unsupported += part.unsupported
+        total.solids += part.solids
+        total.watertight_solids += part.watertight_solids
+        total.closed_candidates += part.closed_candidates
+        total.faces_over_tolerance += part.faces_over_tolerance
+        total.max_deviation = max(total.max_deviation, part.max_deviation)
+        merged = merged.merged(part.mesh)
+    total.mesh = merged
+    return total
 
 
 def contact_sheet(tiles: list[np.ndarray], columns: int) -> np.ndarray:
