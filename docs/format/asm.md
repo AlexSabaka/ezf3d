@@ -24,8 +24,8 @@ b"ASM BinaryFile<N>"     15 bytes, no terminator; N is the pointer width
 The trailing digit of the signature is the **pointer width in bytes**. Both are in the
 wild: ASM 232 writes `ASM BinaryFile8` with 64-bit integers and pointers; ASM 231 and
 earlier write `ASM BinaryFile4` with 32-bit. Stock ACIS SAB (`ACIS BinaryFile`) is
-32-bit and parses with the same code. The version word tracks the release: `23200` for
-ASM 232, `23100` for 231.
+32-bit and parses with the same code. The version word tracks the release — the samples
+alone span three: `23200` (18 bodies), `23100` (22) and `22700` (2).
 
 The three strings and three doubles are ordinary SAB tokens, so the header is really a
 fixed numeric prelude followed by the first record.
@@ -132,8 +132,22 @@ those two numbers.
 
 Two slots are legitimately null. `vertex → edge` is a convenience back-reference, not a
 structural link: one sample vertex leaves it null while four edges reference the vertex.
-And a **degenerate edge** — a cone apex or sphere pole, where start and end vertex are the
-same entity — has no curve at all; there are 169 such edges across the samples.
+And a **degenerate edge** has no curve at all; there are 169 such across the samples.
+
+**Closed is not the same as degenerate.** An edge whose start and end vertex are the *same
+entity* is usually a **closed** edge — a full circle, such as a cylinder's rim, whose
+parameter range spans a whole period. Only when it *also* lacks a curve is it a genuine
+singularity: a cone apex or a sphere pole. Treating every same-vertex edge as degenerate
+throws away every circular rim in the model.
+
+**The stored parameter range is a hint; the vertices are authoritative.** Some edges carry
+a sentinel range — one sample edge one centimetre long stores `(-100, +100)` — so a
+discretiser must invert the curve at the vertices rather than trust `t0`/`t1`. Across the
+samples 504 of 95,668 endpoints (0.53 %) sit on such a range.
+
+A body file can hold **several `body` records describing the same solid** — one per saved
+state — all sharing a single lump and shell chain. In one sample three `body` records
+reach an identical set of 423 faces. Traversal de-duplicates so a face is visited once.
 
 **Tolerant topology** appears as `tedge` (578), `tvertex` (913) and `tcoedge` (4276).
 Each derives from its base class with the same pointer layout plus trailing tolerance

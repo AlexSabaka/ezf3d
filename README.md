@@ -4,12 +4,15 @@ Read Autodesk Fusion 360 `.f3d` / `.f3z` designs **without running Fusion**. A
 pip-installable Python library and CLI, in the spirit of
 [`ezdxf`](https://github.com/mozman/ezdxf) — `ezf3d.readfile(path)` and you're in.
 
-**Status:** alpha. Phase 1 — container, stream decoding, ASM B-Rep reading and
-inspection — is what works today. Geometry evaluation, rendering, feature-graph
-transpilation and simulation are on the roadmap below.
+**Status:** alpha. Reading, inspection, B-Rep traversal and analytic geometry work today.
+Tessellation, rendering, feature-graph transpilation and simulation are on the roadmap
+below.
 
 Exercised against four real designs: 42 B-Rep bodies, 99.8 MB of Shape Manager data,
-592,695 entities, every file walked to its terminator with no unknown tokens.
+every file walked to its terminator with no unknown tokens. The geometry layer is checked
+against the format's own redundancy — for every edge reachable from a body with ordinary
+topology, the vertex must lie on the curve the edge names. Over **95,668 endpoints the
+worst miss is 2.2e-07 cm**, well inside the kernel's own tolerance.
 
 ## Why this exists
 
@@ -75,9 +78,12 @@ Full notes live in [`docs/format/`](docs/format/).
 
 ## Roadmap
 
-- **Phase 1 — container & inspection.** ✅ this release
-- **Phase 2 — geometry & sight.** ASM surface/curve evaluation, tessellation, OGS mesh
-  fast path, pure-numpy offscreen renderer, STL/OBJ/glTF export.
+- **Phase 1 — container & inspection.** ✅
+- **Phase 2.1 — geometry & traversal.** ✅ typed B-Rep walking and analytic curve and
+  surface evaluation.
+- **Phase 2.2–2.5 — sight.** Edge discretisation and a pure-numpy offscreen renderer,
+  then face tessellation with STL/OBJ/glTF export, spline (`nubs`/`nurbs`) evaluation,
+  and the OGS cached-mesh fast path.
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
   tree, joints, materials.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC

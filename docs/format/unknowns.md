@@ -29,9 +29,12 @@ scanned for.
 ## Resolved since first writing
 
 The ASM topology field layouts, the pointer index space (main-section entities, history
-block excluded, markers as prefixes), tolerant topology, and degenerate edges are all
-decoded — see [asm.md](asm.md#topology-and-geometry). They are enforced by a pointer
-contract in `tests/test_asm.py` rather than only described here.
+block excluded, markers as prefixes), tolerant topology, closed versus degenerate edges,
+sentinel parameter ranges, and the analytic surface and curve fields — including
+elliptical cones — are all decoded; see [asm.md](asm.md#topology-and-geometry). They are
+enforced by tests rather than only described here: a pointer contract in
+`tests/test_asm.py`, and in `tests/test_geometry.py` the check that every vertex lies on
+its edge's curve to within the kernel's own tolerance.
 
 ## Header words of unclear role
 
