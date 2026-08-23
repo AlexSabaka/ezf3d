@@ -10,6 +10,7 @@ from ezf3d.model.document import (
     Ef3dError,
     readfile,
 )
+from ezf3d.model.parameters import Parameter, Parameters, read_parameters
 
 __all__ = [
     "DESIGN_SUFFIX",
@@ -20,7 +21,10 @@ __all__ = [
     "Design",
     "Document",
     "Ef3dError",
+    "Parameter",
+    "Parameters",
     "read_design",
+    "read_parameters",
     "readfile",
 ]
 
@@ -33,6 +37,8 @@ from ezf3d.model.report import (
     KernelInfo,
     PackageInfo,
     PackageMember,
+    ParameterInfo,
+    ParametersInfo,
     SegmentInfo,
     Totals,
 )
@@ -46,6 +52,8 @@ __all__ += [
     "KernelInfo",
     "PackageInfo",
     "PackageMember",
+    "ParameterInfo",
+    "ParametersInfo",
     "SegmentInfo",
     "Totals",
 ]

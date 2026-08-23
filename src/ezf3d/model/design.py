@@ -99,6 +99,17 @@ class Design:
     def named_bodies(self) -> int:
         return sum(len(component.bodies) for component in self.components)
 
+    def owner(self, oid: int) -> Component | None:
+        """The component whose id range contains *oid*.
+
+        The same rule the body mapping above is built on, exposed so anything
+        else the graph indexes by id -- parameters, sketches -- can be
+        attributed without repeating it.
+        """
+        ids = [component.oid for component in self.components]
+        position = bisect.bisect_right(ids, oid) - 1
+        return self.components[position] if position >= 0 else None
+
 
 def _leading_name(body: bytes, item: BulkObject) -> str:
     """The record's own ``str8`` type, empty for everything but a root."""
