@@ -184,6 +184,8 @@ def timeline_infos(document: Document) -> list[TimelineInfo]:
                         component=_component_name(design, feature.oid),
                         inputs=len(feature.inputs),
                         parameters=[_parameter_info(p, design) for p in feature.parameters],
+                        operation=feature.extrude.operation if feature.extrude else "",
+                        direction=feature.extrude.direction if feature.extrude else "",
                     )
                     for feature in timeline
                 ],

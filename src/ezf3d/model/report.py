@@ -156,6 +156,11 @@ class TimelineEntry(BaseModel):
     #: radius.  The feature record does not name them; they are attributed by
     #: object order and checked by role against the feature's kind.
     parameters: list[ParameterInfo] = Field(default_factory=list)
+    #: What an extrude does: ``Join``, ``Cut`` or ``NewBody``.  Empty for
+    #: every other kind — no other kind's record carries the block.
+    operation: str = ""
+    #: ``OneSide``, ``TwoSides`` or ``Symmetric``, for an extrude.
+    direction: str = ""
 
 
 class TimelineInfo(BaseModel):

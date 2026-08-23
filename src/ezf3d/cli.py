@@ -1133,7 +1133,7 @@ def timeline(
         else:
             columns = [("#", "right"), ("feature", "left"), ("kind", "left")]
             columns += (
-                [("drives", "left")]
+                [("does", "left"), ("drives", "left")]
                 if inputs
                 else [("component", "left"), ("id", "right"), ("inputs", "right")]
             )
@@ -1148,7 +1148,8 @@ def timeline(
                     entry.kind or "[dim]—[/]",
                 ]
                 if inputs:
-                    cells.append(_drives(entry))
+                    does = " · ".join(x for x in (entry.operation, entry.direction) if x)
+                    cells += [does or "[dim]—[/]", _drives(entry)]
                 else:
                     cells += [entry.component, str(entry.oid), str(entry.inputs)]
                 table.add_row(*cells)
