@@ -177,16 +177,30 @@ def _design_cache():
 @pytest.fixture
 def parameter_sets(opened, sample: Path, _design_cache):
     """``(child document, Parameters)`` for every document with a design."""
-    from ezf3d.model.parameters import read_parameters
-
     key = ("parameters", sample)
     if key not in _design_cache:
         _design_cache[key] = [
-            (child, read_parameters(child.design)) for child in opened.documents() if child.design
+            (child, _read_parameters(child.design, _design_cache))
+            for child in opened.documents()
+            if child.design
         ]
     if not _design_cache[key]:
         pytest.skip("no design segment in this sample")
     return _design_cache[key]
+
+
+def _read_parameters(segment, cache):
+    """:func:`read_parameters`, memoised for the session.
+
+    The parameter tests and the timeline join want the same answer, and reading
+    them twice per sample put the inner loop back over four minutes.
+    """
+    from ezf3d.model.parameters import read_parameters
+
+    key = ("parameters-of", id(segment))
+    if key not in cache:
+        cache[key] = read_parameters(segment)
+    return cache[key]
 
 
 @pytest.fixture
@@ -211,7 +225,9 @@ def timelines(opened, sample: Path, _design_cache):
     key = ("timeline", sample)
     if key not in _design_cache:
         _design_cache[key] = [
-            (child, read_timeline(child.design)) for child in opened.documents() if child.design
+            (child, read_timeline(child.design, _read_parameters(child.design, _design_cache)))
+            for child in opened.documents()
+            if child.design
         ]
     if not _design_cache[key]:
         pytest.skip("no design segment in this sample")

@@ -421,3 +421,22 @@ def test_components_materials_view_names_a_user_library(focuser):
     assert code == 0
     assert "i4 Custom" in out and "PrismMaterial-018" in out
     assert "declared by the .protein package" in out
+
+
+def test_timeline_inputs_names_what_drives_each_feature(sucker):
+    data = payload("timeline", str(sucker))["data"]
+    (document,) = data["documents"]
+    extrude = document["entries"][3]
+    assert extrude["kind"] == "ExtrudeFeature"
+    roles = {p["role"]: p["expression"] for p in extrude["parameters"]}
+    assert roles == {"AlongDistance": "-50 mm", "TaperAngle": "0.0 deg"}
+    # A kind with no number to carry says so by carrying none.
+    paste = next(e for e in document["entries"] if e["kind"] == "PasteBodies")
+    assert paste["parameters"] == []
+
+
+def test_timeline_inputs_renders_for_humans(sucker):
+    code, out = invoke("timeline", str(sucker), "--inputs", "--limit", "8")
+    assert code == 0
+    assert "drives" in out and "AlongDistance" in out
+    assert "carry at least one parameter" in out

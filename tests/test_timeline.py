@@ -10,6 +10,8 @@ human to spot-check against Fusion.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 
 from ezf3d.model.timeline import KIND_ALIASES, kind_of, read_feature, read_timeline
@@ -153,3 +155,126 @@ def test_every_alias_does_work_the_plain_rules_cannot(label):
     """
     bare = label.replace(" ", "")
     assert KIND_ALIASES[label] not in (label, bare, f"{bare}Feature")
+
+
+# -- 3.6a: the parameters a feature drives ---------------------------------
+
+#: Roles that legitimately belong to several kinds, so a low agreement rate for
+#: them is the format and not a misattribution.
+SHARED_ROLES = {"countU", "countV", "AlongDistance"}
+
+#: Roles seen fewer times than this are not scored — the rate would be noise.
+ROLE_SAMPLE = 10
+
+#: Agreement the positional rule has to reach.  It measures 97.0% today.
+ROLE_AGREEMENT = 0.95
+
+
+def test_a_parameter_never_precedes_the_feature_that_claims_it(timelines):
+    """Ownership is positional, so the direction is the whole of the rule."""
+    for child, timeline in timelines:
+        for feature in timeline:
+            for parameter in feature.parameters:
+                assert parameter.oid > feature.oid, f"{child.name}: {parameter.name}"
+
+
+def test_no_parameter_is_claimed_twice(timelines):
+    for child, timeline in timelines:
+        claimed = [p.oid for f in timeline for p in f.parameters]
+        assert len(set(claimed)) == len(claimed), child.name
+
+
+def test_a_role_names_the_slot_it_fills_in_its_feature(timelines):
+    """The check on a positional rule: ``TaperAngle`` has to land on an extrude.
+
+    Roles and kinds are written into different records, so agreement between
+    them is evidence rather than a restatement.  Measured per sample, which is
+    the stricter reading: 100% on SUCKER, 99.5% on Robotic_Bhujha, 99.7% across
+    the package.  The wheel has two parameters and no rate to speak of, so it
+    skips rather than passing on nothing.
+    """
+    seen: Counter[tuple[str, str]] = Counter()
+    for _, timeline in timelines:
+        for feature in timeline:
+            for parameter in feature.parameters:
+                seen[parameter.role, feature.kind or "?"] += 1
+    if not seen:
+        pytest.skip("no attributed parameters in this sample")
+
+    by_role: dict[str, Counter[str]] = {}
+    for (role, kind), count in seen.items():
+        by_role.setdefault(role, Counter())[kind] += count
+
+    scored = {
+        role: kinds
+        for role, kinds in by_role.items()
+        if sum(kinds.values()) >= ROLE_SAMPLE and role not in SHARED_ROLES
+    }
+    if not scored:
+        pytest.skip("too few parameters in this sample to score")
+    agreed = sum(kinds.most_common(1)[0][1] for kinds in scored.values())
+    total = sum(sum(kinds.values()) for kinds in scored.values())
+    assert agreed / total >= ROLE_AGREEMENT, {
+        role: kinds.most_common(2) for role, kinds in scored.items()
+    }
+
+
+def test_the_kinds_that_carry_numbers_get_them(timelines):
+    """Coverage per kind, so a regression in the rule shows up as a drop.
+
+    The kinds absent here — PasteBodies, DeleteBody, SplitBody, Combine — carry
+    no number at all, which is why overall coverage is 70% and not higher.
+    """
+    wanted = {
+        "ExtrudeFeature": 0.90,
+        "FilletEdgeFeature": 0.85,
+        "ChamferFeature": 0.85,
+        "OffsetFacesFeature": 1.0,
+        "CircularPattern": 1.0,
+    }
+    have: dict[str, list[int]] = {}
+    for _, timeline in timelines:
+        for feature in timeline:
+            if feature.kind not in wanted:
+                continue
+            counts = have.setdefault(feature.kind, [0, 0])
+            counts[1] += 1
+            counts[0] += bool(feature.parameters)
+    for kind, (driven, total) in have.items():
+        assert driven / total >= wanted[kind], f"{kind}: {driven}/{total}"
+
+
+def test_a_two_sided_extrude_keeps_both_sides(bhujha, shared_document):
+    """Robotic_Bhujha runs one, and its second side is only in the role names.
+
+    ``AgainstDistance`` and ``Side2TaperAngle`` beside the usual pair is how a
+    symmetric extrude is visible at all — nothing else in the record says so.
+    """
+    from ezf3d.model.parameters import read_parameters
+
+    segment = shared_document(bhujha).design
+    timeline = read_timeline(segment, read_parameters(segment))
+    two_sided = [f for f in timeline if f.role("AgainstDistance") is not None]
+    assert two_sided, "expected a two-sided extrude"
+    for feature in two_sided:
+        assert feature.kind == "ExtrudeFeature"
+        assert feature.role("Side2TaperAngle") is not None
+        assert feature.role("AlongDistance") is not None
+
+
+def test_the_wheels_one_extrude_reads_end_to_end(wheel, shared_document):
+    """Small enough to check by hand, so it is checked by hand."""
+    from ezf3d.model.parameters import read_parameters
+
+    segment = shared_document(wheel).design
+    timeline = read_timeline(segment, read_parameters(segment))
+    extrude = next(f for f in timeline if f.kind == "ExtrudeFeature")
+    assert extrude.role("AlongDistance").expression == "-1 mm"
+    assert extrude.role("AlongDistance").display == pytest.approx(-1.0)
+    assert extrude.role("TaperAngle").expression == "0.0 deg"
+
+
+def test_the_join_is_opt_in(wheel, shared_document):
+    """Reading the order must not cost a second pass over the stream."""
+    segment = shared_document(wheel).design
+    assert all(not feature.parameters for feature in read_timeline(segment))
