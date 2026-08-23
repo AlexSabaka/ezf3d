@@ -12,11 +12,14 @@ from ezf3d.asm.brep import Shape
 from ezf3d.asm.geometry import SplineSurface
 from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.topology import KERNEL_UNIT
+from ezf3d.model.design import read_design
 from ezf3d.model.document import Asset, Body, Document
 from ezf3d.model.report import (
     AssetInfo,
     BodyInfo,
     BoundsInfo,
+    ComponentInfo,
+    DesignInfo,
     DocumentInfo,
     KernelInfo,
     PackageInfo,
@@ -27,6 +30,37 @@ from ezf3d.model.report import (
 
 #: Enough bytes to cover the ASM header of any body.
 _HEADER_PREFIX = 256
+
+
+def design_infos(document: Document) -> list[DesignInfo]:
+    """One :class:`DesignInfo` per document that carries a design segment."""
+    rows: list[DesignInfo] = []
+    for child in document.documents():
+        segment = child.design
+        if segment is None:
+            continue
+        design = read_design(segment)
+        on_disk = {f"BREP.{body.uuid}.{body.suffix}" for body in child.bodies}
+        rows.append(
+            DesignInfo(
+                document=child.name,
+                objects=design.objects,
+                roots=dict(sorted(design.roots.items())),
+                components=[
+                    ComponentInfo(
+                        oid=component.oid,
+                        name=component.name,
+                        named=component.is_named,
+                        bodies=list(component.bodies),
+                        declared_features=sorted(component.features),
+                    )
+                    for component in design.components
+                ],
+                bodies_named=len(design.bodies),
+                bodies_on_disk=len(on_disk),
+            )
+        )
+    return rows
 
 
 def segment_info(document: Document, asset: Asset) -> list[SegmentInfo]:

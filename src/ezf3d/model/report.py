@@ -56,6 +56,31 @@ class SegmentInfo(BaseModel):
     meta_unread: int = 0
 
 
+class ComponentInfo(BaseModel):
+    """One component of a design."""
+
+    oid: int
+    #: Fusion writes a GUID here for a component the user never named.
+    name: str
+    named: bool = True
+    #: Blob filenames of the bodies this component owns.
+    bodies: list[str] = Field(default_factory=list)
+    #: Feature kinds its own registry declares — what it *can* contain.
+    declared_features: list[str] = Field(default_factory=list)
+
+
+class DesignInfo(BaseModel):
+    """A design segment's structure."""
+
+    document: str
+    objects: int = 0
+    roots: dict[str, int] = Field(default_factory=dict)
+    components: list[ComponentInfo] = Field(default_factory=list)
+    #: Bodies the graph names, against those in ``Breps.BlobParts``.
+    bodies_named: int = 0
+    bodies_on_disk: int = 0
+
+
 class AssetInfo(BaseModel):
     folder: str
     name: str

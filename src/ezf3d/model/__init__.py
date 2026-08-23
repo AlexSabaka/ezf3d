@@ -1,5 +1,6 @@
 """Document model."""
 
+from ezf3d.model.design import Component, Design, read_design
 from ezf3d.model.document import (
     DESIGN_SUFFIX,
     PACKAGE_SUFFIX,
@@ -15,8 +16,11 @@ __all__ = [
     "PACKAGE_SUFFIX",
     "Asset",
     "Body",
+    "Component",
+    "Design",
     "Document",
     "Ef3dError",
+    "read_design",
     "readfile",
 ]
 
