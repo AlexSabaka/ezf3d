@@ -152,6 +152,10 @@ class TimelineEntry(BaseModel):
     component: str = ""
     #: How many objects the feature consumes.
     inputs: int = 0
+    #: The numbers that drive it — an extrude's distance and taper, a fillet's
+    #: radius.  The feature record does not name them; they are attributed by
+    #: object order and checked by role against the feature's kind.
+    parameters: list[ParameterInfo] = Field(default_factory=list)
 
 
 class TimelineInfo(BaseModel):

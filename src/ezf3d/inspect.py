@@ -85,6 +85,21 @@ def design_infos(document: Document) -> list[DesignInfo]:
     return rows
 
 
+def _parameter_info(parameter, design) -> ParameterInfo:
+    return ParameterInfo(
+        oid=parameter.oid,
+        name=parameter.name,
+        role=parameter.role,
+        unit=parameter.unit,
+        expression=parameter.expression,
+        value=parameter.value,
+        display=parameter.display,
+        comment=parameter.comment,
+        component=_component_name(design, parameter.oid),
+        revision=parameter.revision,
+    )
+
+
 def parameter_infos(document: Document) -> list[ParametersInfo]:
     """One :class:`ParametersInfo` per document that carries a design segment.
 
@@ -105,21 +120,7 @@ def parameter_infos(document: Document) -> list[ParametersInfo]:
             ParametersInfo(
                 document=child.name,
                 declared=parameters.declared,
-                parameters=[
-                    ParameterInfo(
-                        oid=parameter.oid,
-                        name=parameter.name,
-                        role=parameter.role,
-                        unit=parameter.unit,
-                        expression=parameter.expression,
-                        value=parameter.value,
-                        display=parameter.display,
-                        comment=parameter.comment,
-                        component=_component_name(design, parameter.oid),
-                        revision=parameter.revision,
-                    )
-                    for parameter in parameters
-                ],
+                parameters=[_parameter_info(parameter, design) for parameter in parameters],
                 unreadable=list(parameters.unreadable),
                 literals_checked=checked,
                 literals_disagreeing=list(disagreeing),
@@ -166,7 +167,8 @@ def timeline_infos(document: Document) -> list[TimelineInfo]:
         segment = child.design
         if segment is None:
             continue
-        timeline = read_timeline(segment)
+        parameters = read_parameters(segment)
+        timeline = read_timeline(segment, parameters)
         design = read_design(segment) if timeline.features else None
         unknown, over = timeline.check()
         rows.append(
@@ -181,6 +183,7 @@ def timeline_infos(document: Document) -> list[TimelineInfo]:
                         kind=feature.kind,
                         component=_component_name(design, feature.oid),
                         inputs=len(feature.inputs),
+                        parameters=[_parameter_info(p, design) for p in feature.parameters],
                     )
                     for feature in timeline
                 ],

@@ -1095,6 +1095,9 @@ def timeline(
     kinds: Annotated[
         bool, typer.Option("--kinds", help="Show the per-kind census against the registry.")
     ] = False,
+    inputs: Annotated[
+        bool, typer.Option("--inputs", help="Show the numbers that drive each feature.")
+    ] = False,
     limit: Annotated[
         int, typer.Option("--limit", help="Rows to print per document; 0 for all.")
     ] = 40,
@@ -1128,26 +1131,27 @@ def timeline(
         if kinds:
             _print_kinds(row)
         else:
+            columns = [("#", "right"), ("feature", "left"), ("kind", "left")]
+            columns += (
+                [("drives", "left")]
+                if inputs
+                else [("component", "left"), ("id", "right"), ("inputs", "right")]
+            )
             table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
-            for column, justify in (
-                ("#", "right"),
-                ("feature", "left"),
-                ("kind", "left"),
-                ("component", "left"),
-                ("id", "right"),
-                ("inputs", "right"),
-            ):
+            for column, justify in columns:
                 table.add_column(column, justify=justify, overflow="fold")
             shown = row.entries if limit <= 0 else row.entries[:limit]
             for entry in shown:
-                table.add_row(
+                cells = [
                     str(entry.index + 1),
                     entry.name or "[dim]unnamed[/]",
                     entry.kind or "[dim]—[/]",
-                    entry.component,
-                    str(entry.oid),
-                    str(entry.inputs),
-                )
+                ]
+                if inputs:
+                    cells.append(_drives(entry))
+                else:
+                    cells += [entry.component, str(entry.oid), str(entry.inputs)]
+                table.add_row(*cells)
             console.print(table)
             if len(shown) < len(row.entries):
                 console.print(f"[dim]… {len(row.entries) - len(shown)} more (--limit 0 for all)[/]")
@@ -1162,6 +1166,12 @@ def timeline(
             console.print(
                 "[green]every[/] feature's kind is one the registry declares, "
                 "and none outruns its counter"
+            )
+        if inputs:
+            driven = sum(1 for entry in row.entries if entry.parameters)
+            console.print(
+                f"[green]{driven}[/] of {len(row.entries)} features carry at least one "
+                f"parameter; the rest are kinds with no number to carry"
             )
         if row.unnamed:
             console.print(f"[dim]{row.unnamed} entries carry no label[/]")
@@ -1181,6 +1191,17 @@ def _material_cell(material: str) -> str:
     if not material:
         return "[dim]—[/]"
     return material if "|" in material else f"[dim]{material[:8]}…[/]"
+
+
+def _drives(entry: Any) -> str:
+    """A feature's parameters as ``role=expression``, or a dash when it has none.
+
+    A dash is not a failure: PasteBodies, DeleteBody and Combine carry no
+    number, which is why the coverage figure is 70% and not higher.
+    """
+    if not entry.parameters:
+        return "[dim]—[/]"
+    return ", ".join(f"{p.role}=[bold]{p.expression or p.display}[/]" for p in entry.parameters)
 
 
 def _print_kinds(row: Any) -> None:
