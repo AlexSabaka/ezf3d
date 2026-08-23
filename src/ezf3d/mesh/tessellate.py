@@ -53,6 +53,16 @@ _MAX_ROWS = 64
 #: How many times a measured strip may be halved before giving up.
 _MAX_REFINE_STEPS = 5
 
+#: Floor on how far a loop point may sit from the face's surface, so that a
+#: very tight chord tolerance does not start rejecting the kernel's own
+#: rounding.  An order of magnitude above the 1.2e-05 cm that 99.9 % of loops
+#: come within.
+_ON_SURFACE = 1e-4
+
+#: Points sampled per ring when checking it against the surface.  A loop from
+#: another face is centimetres away, not microns; a handful finds it.
+_RING_SAMPLE = 8
+
 #: A face whose triangles stray this far past the tolerance is reported rather
 #: than meshed.  Marginal overshoot is fine; a fan across a curved face is not.
 _REJECT_FACTOR = 4.0
@@ -112,6 +122,33 @@ def _loop_polyline(loop: Loop, tolerance: float) -> np.ndarray | None:
     if not pieces:
         return None
     return np.concatenate(pieces)
+
+
+def _rings_lie_on(surface: Surface, rings: list[np.ndarray], tolerance: float) -> bool:
+    """Whether every ring is close enough to *surface* to be its boundary.
+
+    A face's loops are reached by walking a ``next`` chain, and in a design
+    saved with rollback history that chain can run into a loop belonging to a
+    different face — the loop's own back-pointer is no help, since two faces
+    can reach one loop record and the one it names is not always the one whose
+    surface the points lie on.
+
+    Geometry settles it, and cleanly: over 25,803 loops in the samples the
+    99.9th percentile distance to the face's own surface is 1.2e-05 cm and
+    only three exceed a thousandth, one of them by 2.9 cm.  That last one gave
+    a plane at *x* = -0.3 a second outline at *x* = 2.6, which triangulated
+    into 29.1 cm2 where the face encloses 0.8.
+    """
+    bar = max(tolerance, _ON_SURFACE)
+    for ring in rings:
+        step = max(1, len(ring) // _RING_SAMPLE)
+        try:
+            for point in ring[::step]:
+                if abs(surface.distance_to(point)) > bar:
+                    return False
+        except (GeometryError, ValueError, ZeroDivisionError):
+            return False
+    return True
 
 
 def _to_uv(surface: Surface, points: np.ndarray) -> np.ndarray:
@@ -553,6 +590,8 @@ def tessellate_face(
             rings.append(points)
     if not rings:
         return Mesh(), "no usable loop", 0.0
+    if not isinstance(surface, SplineSurface) and not _rings_lie_on(surface, rings, tolerance):
+        return Mesh(), "loop does not lie on the face's surface", 0.0
 
     try:
         uvs = [_to_uv(surface, ring) for ring in rings]

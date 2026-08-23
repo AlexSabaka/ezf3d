@@ -246,6 +246,19 @@ class Coedge(Node):
 
 @dataclass(slots=True, frozen=True)
 class Loop(Node):
+    @property
+    def owner(self) -> Entity | None:
+        """The face this loop says it belongs to.
+
+        Informative rather than authoritative.  In a design saved with
+        rollback history two faces can reach the same loop record, and the
+        one it names is not always the one whose surface its points lie on —
+        so a consumer that needs to know whether a loop really bounds a face
+        should ask the geometry, not this.
+        """
+        pointers = self.entity.pointers()
+        return self.model.resolve(pointers[4]) if len(pointers) > 4 else None
+
     def coedges(self) -> Iterator[Coedge]:
         """Walk the closed ring of coedges, guarding against cycles."""
         pointers = self.entity.pointers()
