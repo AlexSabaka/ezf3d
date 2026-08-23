@@ -314,3 +314,29 @@ def test_source_rejects_an_unknown_value(wheel):
     code, out = invoke("mesh", str(wheel), "--source", "wat", "--json")
     assert code == 1
     assert json.loads(out)["ok"] is False
+
+
+def test_components_reports_the_tree_and_its_bodies(bhujha):
+    data = payload("components", str(bhujha))["data"]
+    (document,) = data["documents"]
+    assert document["document"] == "Robotic_Bhujha"
+    assert document["objects"] > 10_000
+    assert "ComponentsRoot" in document["roots"]
+    names = [component["name"] for component in document["components"]]
+    assert "BASE" in names and "ARM_1" in names
+    # Named by the graph, counted in the archive — two different files.
+    assert document["bodies_named"] == document["bodies_on_disk"] == 22
+    assert all(len(component["bodies"]) == 2 for component in document["components"])
+
+
+def test_components_covers_every_member_of_a_package(focuser):
+    data = payload("components", str(focuser))["data"]
+    assert len(data["documents"]) == 3
+    for document in data["documents"]:
+        assert document["bodies_named"] == document["bodies_on_disk"]
+
+
+def test_components_renders_for_humans(wheel):
+    code, out = invoke("components", str(wheel))
+    assert code == 0
+    assert "bodies named by the graph" in out
