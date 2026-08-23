@@ -68,6 +68,7 @@ with ezf3d.readfile("Design.f3d") as doc:
     body.model().header.kernel_release  # '232.4.0.65535'
     body.census().faces  # 2006
     body.census().analytic_only  # True -> tessellable without a spline kernel
+    len(doc.design.objects())  # 3444 -> design objects, each with an offset and extent
 ```
 
 `.f3z` packages resolve their reference graph: `readfile` returns the root design, with
@@ -105,7 +106,9 @@ Full notes live in [`docs/format/`](docs/format/).
   descriptors, cross-validated against the ASM tessellation — which is how a
   hole-triangulation bug and a stale-loop bug were found.
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
-  tree, joints, materials.
+  tree, joints, materials. In progress: the meta stream is decoded, and its object index
+  makes the design payload randomly addressable — 14,843 objects in one sample, each
+  with a known offset and extent.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`

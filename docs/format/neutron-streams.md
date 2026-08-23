@@ -97,7 +97,7 @@ derives from another: an `Animation` asset names the design asset it animates.
 
 A segment is one subsystem's slice of the document, stored as two files.
 
-**`MetaStream.dat`** — the index:
+**`MetaStream.dat`** — the index, and it earns the name:
 
 ```
 str8   prefix                folder prefix, matching the manifest declaration
@@ -106,8 +106,55 @@ wstr   guid                  all-zero for a segment that has never branched
        <version block>
 str8   declared_type         "FusionDesignSegmentType" (plain "Design" in old files)
 str8   owner                 "Fusion" / "Animation"; empty in old files
-       ... per-module records naming object ids in the bulk stream
+u32    ?, u32 ?, u32 record_count
+record_count x {
+  str8 identity              this record's own GUID, unique in the segment
+  str8 group                 a GUID several records share
+  u32  kind                  0-4; meaning not established
+  str8 owner                 Fusion / Geometry / EntityTracking / Component / ...
+  u32  n, n x u64 ids        object ids this record refers to
+}
+u32    n_roots, n_roots x u64          the segment's root objects
+{ u32 n, n x (u64 object_id, u64 bulk_offset) } ...    the object index
+u64    next_id, u32 0        one past the highest id ever issued
+u32    2, { str8 subsystem, u32 revision } x 2         optional footer
 ```
+
+The record count is exact: all fourteen segments across the samples walk to
+precisely the number the header declares.
+
+### The object index
+
+The heart of it. `object_id → byte offset in the bulk stream`, and **the offsets
+ascend with the ids**, so consecutive entries delimit each object:
+
+| sample | indexed objects | median object | largest |
+|---|---|---|---|
+| Mk1 Focuser, Wheel 2 | 385 | 99 B | 11.6 KB |
+| SUCKER | 3,444 | 103 B | 31.6 KB |
+| Robotic_Bhujha | 14,843 | 96 B | 150 KB |
+| Focuser Mk1 (`.f3z`) | 26,950 | — | — |
+
+**The bulk stream is therefore randomly addressable and its records have known
+extents**, without any decoder for what is inside one. `Segment.object_bytes(id)`
+hands back exactly one.
+
+Corroboration that the offsets are real boundaries comes from outside the index:
+the type-name strings are found by scanning the bulk stream for length-prefixed
+strings, which knows nothing about it. Every one of them — 16, 1,150 and 4,307
+across the three plain designs — falls inside exactly one indexed object, and
+none straddles a boundary.
+
+`next_id` is a high-water mark rather than a count: the wheel's design segment
+indexes 385 objects, its largest id is 452, and `next_id` is 453. SUCKER's is
+13,812 against 3,444 live objects, so most ids have been retired.
+
+The two GUIDs are told apart by how they repeat. `identity` is unique across a
+segment's records in all fourteen — 299 distinct across Robotic_Bhujha's 299.
+`group` repeats, 45 distinct over the wheel's 167 with one used 22 times. Read
+the other way round the list looks like a chain, and for the first five records
+it convincingly is; over the whole list only 44 of 167 link, so that is a
+coincidence of the opening records.
 
 **`BulkStream.dat`** — the payload:
 
@@ -172,9 +219,8 @@ link between a component in the timeline and a file in `Breps.BlobParts`, and ez
 tests that the set of references equals the set of blobs exactly — which cross-validates
 the layout scan and the design-stream scan against each other.
 
-Decoding individual bulk records — parameters with their expressions, sketch entities and
-constraints, the ordered feature timeline — needs a schema-versioned decoder per
-subsystem revision, and the meta stream is no shortcut: it indexes by logical object id,
-not by byte offset. Of 511 string offsets in the wheel's bulk stream, three appear
-anywhere in its meta stream, which is chance. So the payload has to be read sequentially.
-That is the rest of Phase 3; until then it is reachable as raw bytes.
+Decoding the *contents* of a bulk object — parameters with their expressions, sketch
+entities and constraints, the ordered feature timeline — still needs a schema-versioned
+decoder per subsystem revision. What the index removes is the need to find them: each
+object's id, offset and extent are known, so a decoder can be written for one type at a
+time and tested on exactly the bytes of one record. That is the rest of Phase 3.

@@ -4,29 +4,33 @@ An honest list. Each entry says what is not understood and what decoding it woul
 
 ## Bulk stream record bodies
 
-**Status:** type names recovered, record bodies not.
+**Status:** every record located and delimited; the fields inside one not decoded.
 
-The design segment's payload is a typed object graph whose meta-type names read plainly
-(`DcExtrudeFeatureMetaType`, `SketchesRoot`, parameter ids like `d73`, expressions like
-`80mm`), but the record *bodies* need a decoder per subsystem schema revision — the
-observed versions span `269` through `489` across four documents.
+The meta stream's index gives each object an id, a byte offset and — through the next
+entry — an extent, so `Segment.object_bytes(id)` already hands back exactly one record:
+385 of them in the wheel, 14,843 in Robotic_Bhujha. What is not decoded is the *inside*,
+which needs a schema per type per subsystem revision — the observed revisions span `269`
+through `489` across four documents.
+
+The difference matters. A decoder can now be written for one type at a time and tested
+against exactly the bytes of one record, rather than having to parse a 2.7 MB stream
+sequentially to reach anything.
 
 **Unlocks:** parameters with names and expressions, sketch entities and constraints, the
 ordered feature timeline, the component tree, joints. Everything Phase 3 and Phase 4 need.
 
-## Meta stream records
-
-**Status:** header decoded, per-module records not.
-
-After the header, a meta stream holds records keyed by module GUID that name the object
-ids present in the bulk stream, roughly
-`str8 guid, str8 guid, u32, str8 kind, u32 n, n x u64 ids`. The exact shape varies by
-module.
-
-**Unlocks:** an index into the bulk stream, so records can be found by id rather than
-scanned for.
-
 ## Resolved since first writing
+
+### The meta stream, including its object index
+
+Fully decoded; see [neutron-streams.md](neutron-streams.md#segments). It is not merely a
+list of ids: it maps **object id to byte offset in the bulk stream**, ascending in both,
+so consecutive entries delimit each object. All fourteen segments of the samples walk to
+exactly the record count their header declares, and every byte between the index and the
+footer is accounted for except a 728-byte section in two `.f3z` members, which is
+reported as a count.
+
+That changes what remains below. Decoding a bulk record no longer means finding it.
 
 The ASM topology field layouts, the pointer index space (main-section entities, history
 block excluded, markers as prefixes), tolerant topology, closed versus degenerate edges,
