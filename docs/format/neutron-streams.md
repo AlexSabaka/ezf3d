@@ -118,7 +118,7 @@ u64    flags                 0, except 2 in browser streams
 ```
 
 Both streams are **uncompressed**. The bulk stream is a typed object graph whose records
-carry readable type names, which is what makes the design timeline recoverable:
+carry readable type names:
 
 ```
 DcSketchMetaType         DcExtrudeFeatureMetaType      DcRevolveFeatureMetaType
@@ -127,11 +127,44 @@ DcShellFeatureMetaType   DcHoleFeatureMetaType         DcThreadFeatureMetaType
 DcCircularPatternMetaType  DcRectangularPatternMetaType  DcPathPatternMetaType
 DcJointOriginFeatureMetaType  DcJointAssembleFeatureMetaType  DcMotionLinkFeatureMetaType
 roots: ComponentsRoot, ComponentInstancesRoot, BodiesRoot, SketchesRoot, UnitSystems
-refs:  StrongRefMetaType, PassiveRefMetaType, IntrinsicMetaType
+refs:  StrongRefMetaType, PassiveRefMetaType, IntrinsicMetaTypeuint64
 ```
 
-Alongside those sit Fusion's auto-named dimension parameters (`d1`, `d3`, `d73`) and
-literal expressions (`80mm`, `7cm`).
+### The type names are a dictionary, not a timeline
+
+They arrive in **registries**: one entry per kind, sorted by name, that the objects index
+into. SUCKER holds one of 17 entries at offset 9558; Robotic_Bhujha holds eleven, of 2 to
+14 entries each.
+
+Two measurements say a *count* of these names describes the dictionary rather than the
+design. No registry repeats a name, and a name's total across the stream is exactly the
+number of registries that declare it — so Robotic_Bhujha's nine
+`DcExtrudeFeatureMetaType` are nine registries that permit an extrude, not nine extrudes.
+
+`ezf3d` therefore reports the declared *set* and how many registries there are, and says
+nothing about how many features a design has, because at this level the stream does not
+say.
+
+### Match whole strings, not raw bytes
+
+The names must be found by scanning for length-prefixed strings and matched **whole**.
+Matched as a pattern over raw bytes, the same names appear far more often and truncated:
+
+| sample | raw-byte "hits" | real type-name strings |
+|---|---|---|
+| Mk1 Focuser, Wheel 2 | 16 | 12 |
+| SUCKER | 1,150 | 32 |
+| Robotic_Bhujha | 4,307 | 108 |
+
+Every extra hit is a real string cut short. All 1,118 of SUCKER's `IntrinsicMetaType`
+are really `IntrinsicMetaTypeuint64` — a scalar-type declaration, with the value type
+glued to the name — and three more are `IntrinsicMetaTypeIString`, `…bool`, `…HString`.
+Reporting the prefix turns a type declaration into a phantom timeline feature, which is
+exactly what this project used to do.
+
+Alongside those sit Fusion's auto-named dimension parameters (`d1`, `d3`, `d73`), stored
+as UTF-16LE with a `u32` character count — 834 of them in Robotic_Bhujha — and the unit
+names their expressions carry (`mm` ×283, `deg` ×110).
 
 **Bodies are named by blob filename.** The design graph refers to its B-Rep bodies as
 `BREP.<uuid>.smb`, written in UTF-16LE (ASCII in older documents). That string is the
@@ -141,4 +174,7 @@ the layout scan and the design-stream scan against each other.
 
 Decoding individual bulk records — parameters with their expressions, sketch entities and
 constraints, the ordered feature timeline — needs a schema-versioned decoder per
-subsystem revision. That is Phase 3; until then the payload is reachable as raw bytes.
+subsystem revision, and the meta stream is no shortcut: it indexes by logical object id,
+not by byte offset. Of 511 string offsets in the wheel's bulk stream, three appear
+anywhere in its meta stream, which is chance. So the payload has to be read sequentially.
+That is the rest of Phase 3; until then it is reachable as raw bytes.
