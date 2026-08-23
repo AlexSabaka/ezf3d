@@ -10,6 +10,7 @@ from ezf3d.model.document import (
     Ef3dError,
     readfile,
 )
+from ezf3d.model.materials import Assignment, Materials, read_assignments, read_catalogue
 from ezf3d.model.parameters import Parameter, Parameters, read_parameters
 from ezf3d.model.timeline import Feature, Timeline, read_timeline
 
@@ -17,15 +18,19 @@ __all__ = [
     "DESIGN_SUFFIX",
     "PACKAGE_SUFFIX",
     "Asset",
+    "Assignment",
     "Body",
     "Component",
     "Design",
     "Document",
     "Ef3dError",
     "Feature",
+    "Materials",
     "Parameter",
     "Parameters",
     "Timeline",
+    "read_assignments",
+    "read_catalogue",
     "read_design",
     "read_parameters",
     "read_timeline",

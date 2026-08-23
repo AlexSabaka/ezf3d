@@ -19,6 +19,7 @@ from ezf3d.asm.topology import TopologyCensus, census
 from ezf3d.container.archive import F3DArchive
 from ezf3d.container.layout import AssetFolderLayout, BrepLocation, DocumentLayout, discover_layout
 from ezf3d.container.package import PackageEntry, PackageIndex, read_package_index
+from ezf3d.model.materials import read_catalogue
 from ezf3d.ogs.cache import GraphicsCache, read_cache
 from ezf3d.streams.manifest import (
     AssetManifest,
@@ -82,6 +83,7 @@ class Asset:
     _archive: F3DArchive
     _segments: dict[str, Segment] | None = field(default=None, repr=False)
     _cache: GraphicsCache | None = field(default=None, repr=False)
+    _catalogue: dict[str, str] | None = field(default=None, repr=False)
 
     @property
     def segments(self) -> dict[str, Segment]:
@@ -125,6 +127,24 @@ class Asset:
         if not self.layout.previews:
             return None
         return self._archive.read(self.layout.previews[0])
+
+    def raw(self, path: str) -> bytes:
+        """One of this asset's archive entries, decompressed."""
+        return self._archive.read(path)
+
+    def protein_catalogue(self) -> dict[str, str]:
+        """``asset id -> category`` for every material this asset packages.
+
+        Reads only the packages' tables of contents, which is enough to say
+        what kind of asset a design's assignment names.  Cached, because the
+        blobs decompress to tens of kilobytes and several callers want it.
+        """
+        if self._catalogue is None:
+            catalogue: dict[str, str] = {}
+            for path in self.layout.proteins:
+                catalogue.update(read_catalogue(self._archive.read(path)))
+            self._catalogue = catalogue
+        return self._catalogue
 
 
 @dataclass(slots=True)
