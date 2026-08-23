@@ -16,8 +16,13 @@ The difference matters. A decoder can now be written for one type at a time and 
 against exactly the bytes of one record, rather than having to parse a 2.7 MB stream
 sequentially to reach anything.
 
-**Unlocks:** parameters with names and expressions, sketch entities and constraints, the
-ordered feature timeline, the component tree, joints. Everything Phase 3 and Phase 4 need.
+Two record types are now decoded field by field: the component (its name and the id
+range it owns) and the **parameter** — name, role, unit, expression and value, 1,193 of
+them across the four samples, each checked four ways. See
+[neutron-streams.md](neutron-streams.md#parameters). The rest are still bytes.
+
+**Unlocks:** sketch entities and constraints, the ordered feature timeline, feature
+payloads, joints. Everything Phase 3.4 onwards and Phase 4 need.
 
 ## Resolved since first writing
 
@@ -39,6 +44,20 @@ elliptical cones — are all decoded; see [asm.md](asm.md#topology-and-geometry)
 enforced by tests rather than only described here: a pointer contract in
 `tests/test_asm.py`, and in `tests/test_geometry.py` the check that every vertex lies on
 its edge's curve to within the kernel's own tolerance.
+
+### Parameters, with their expressions and units
+
+Decoded; see [neutron-streams.md](neutron-streams.md#parameters). What made it tractable
+is the object index: a parameter is one 140–260 byte record with a known extent, so its
+fields could be read directly instead of parsed to.
+
+What is *not* decoded is the 31-byte preamble before the expression — only the `u32` at
++16, which repeats the number in the auto-generated name — nor the reference at +20,
+which points at a neighbouring object. Nine or ten bytes between the expression and the
+role are zero in every record seen and are skipped rather than named.
+
+ezf3d does not evaluate expressions. `d155 = d154` and `1.5 in / 2` are reported as
+written; the stored value is what it reports as the value.
 
 ## Spline surface identification
 

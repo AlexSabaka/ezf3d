@@ -51,6 +51,7 @@ ezf3d mesh    <file>              # tessellate and report coverage, deviation, w
 ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
 ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
 ezf3d components <file>           # the component tree, and which bodies each one owns
+ezf3d params  <file>              # every parameter: name, role, unit, expression, value
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -72,6 +73,8 @@ with ezf3d.readfile("Design.f3d") as doc:
     len(doc.design.objects())  # 3444 -> design objects, each with an offset and extent
     design = ezf3d.model.read_design(doc.design)
     design.components[0].name  # 'SUCKER v2'  -> and .bodies, .features
+    params = ezf3d.model.read_parameters(doc.design)
+    params.by_name()["d20"].expression  # '14 mm'  -> and .role, .unit, .value, .display
 ```
 
 `.f3z` packages resolve their reference graph: `readfile` returns the root design, with
@@ -111,8 +114,9 @@ Full notes live in [`docs/format/`](docs/format/).
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
   tree, joints, materials. In progress: the meta stream is decoded and its object index
   makes the design payload randomly addressable — 14,843 objects in one sample, each with
-  a known offset and extent — and `ezf3d components` reads the component tree, naming
-  every body in `Breps.BlobParts` exactly once.
+  a known offset and extent. `ezf3d components` reads the component tree, naming every
+  body in `Breps.BlobParts` exactly once, and `ezf3d params` reads all 1,193 parameters
+  of the four samples with their roles, units, expressions and values.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`

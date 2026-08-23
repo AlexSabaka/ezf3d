@@ -259,18 +259,71 @@ glued to the name — and three more are `IntrinsicMetaTypeIString`, `…bool`, 
 Reporting the prefix turns a type declaration into a phantom timeline feature, which is
 exactly what this project used to do.
 
-Alongside those sit Fusion's auto-named dimension parameters (`d1`, `d3`, `d73`), stored
-as UTF-16LE with a `u32` character count — 834 of them in Robotic_Bhujha — and the unit
-names their expressions carry (`mm` ×283, `deg` ×110).
-
 **Bodies are named by blob filename.** The design graph refers to its B-Rep bodies as
 `BREP.<uuid>.smb`, written in UTF-16LE (ASCII in older documents). That string is the
 link between a component in the timeline and a file in `Breps.BlobParts`, and ezf3d
 tests that the set of references equals the set of blobs exactly — which cross-validates
 the layout scan and the design-stream scan against each other.
 
-Decoding the *contents* of a bulk object — parameters with their expressions, sketch
-entities and constraints, the ordered feature timeline — still needs a schema-versioned
+### Parameters
+
+Every dimension a designer types lands in a parameter, and these are the first bulk
+objects ezf3d decodes field by field. Two objects hold the index, side by side:
+
+**The manager** carries a reference to the table, then one reference per parameter in id
+order. **The table** is `u32 count` followed by that many entries of
+`wstr name, 0x01, u64 object id, u16 0`. It is authoritative — every name a design has,
+including any the user typed rather than Fusion generating.
+
+The table has no fixed object id (17 in Robotic_Bhujha, 20 in SUCKER, 201 in the wheel),
+so it is found by shape: the object whose first wide string is preceded by a count that
+walks cleanly to that many `name, reference` entries. The manager is always the object
+immediately before it.
+
+**Each parameter is its own object**, laid out after a 31-byte preamble:
+
+```
+u32 number                          at +16 — the N in the auto name dN
+wstr expression                     at +31 — "300 mm", "1.5 in / 2", "d154"
+<padding>                           nine bytes; ten before revision 489
+wstr role, wstr comment, wstr unit, wstr name
+f64 value
+0x00, 0x01, u64 manager, 0x00, 0x00
+str8 revision                       of the record, not of the stream
+```
+
+The *role* is the slot the parameter fills in the feature that owns it — `AlongDistance`,
+`TaperAngle`, `RotateAngle`, `Radius`, `countU` — or, for a sketch dimension, the
+dimension's own name (`Diameter Dimension-2`).
+
+**Values are in Fusion's internal units: centimetres and radians.** `300 mm` is stored as
+30.0 and `180.0 deg` as pi.
+
+Four redundancies make the reading checkable rather than merely plausible. The name
+inside a record equals the name the table filed it under; the `u32` at +16 equals the
+digits of that name; the back-reference after the value is the same manager object for
+every parameter of a document; and where an expression is a literal, converting it by the
+unit gives back the stored value. All four hold for **1,193 of 1,193** parameters across
+the four samples — 2, 79, 417 and 695 — including 1,185 literal expressions.
+
+| design | parameters | with a formula |
+|---|---|---|
+| Mk1 Focuser, Wheel 2 | 2 | 0 |
+| SUCKER | 79 | 0 |
+| Robotic_Bhujha | 417 | 0 |
+| Focuser Mk1 (3 documents) | 695 + 0 + 0 | 8 |
+
+Formulas are reported as written; ezf3d does not evaluate them. They are nonetheless
+consistent with what the records store: `d155` is written as `d154` and holds `d154`'s
+value, and `1.5 in / 2` is stored as 1.905 — the only measurement pinning the inch
+factor.
+
+Two of the package's members declare no table and hold no parameter-like string at all.
+Both are documents assembled out of imported bodies, so "none" is the honest answer
+rather than a failed search.
+
+Decoding the *contents* of a bulk object — sketch entities and constraints, the ordered
+feature timeline, feature payloads — still needs a schema-versioned
 decoder per subsystem revision. What the index removes is the need to find them: each
 object's id, offset and extent are known, so a decoder can be written for one type at a
 time and tested on exactly the bytes of one record. That is the rest of Phase 3.
