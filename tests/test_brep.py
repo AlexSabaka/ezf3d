@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import collections
 
+import numpy as np
+import pytest
+
 import ezf3d
 from ezf3d.asm.brep import Body, Shape
+from ezf3d.asm.tokens import Tag
 
 
 def test_walked_counts_match_the_census_when_there_is_no_history(opened):
@@ -147,3 +151,34 @@ def test_traversal_terminates_on_every_body(opened):
             for solid in shape.solids():
                 assert isinstance(solid, Body)
                 assert len(list(solid.lumps())) <= len(model.entities)
+
+
+def test_body_transforms_are_identity(opened):
+    """Which is why a whole-document render assembles rather than stacks.
+
+    ``scene.py`` used to warn that bodies were drawn in their own local
+    coordinates and that rendering a whole assembly piled the parts on top of
+    each other.  The evidence for that was bounding boxes straddling the
+    origin, which proves nothing — a part centred near the assembly origin
+    straddles it too.
+
+    The ASM record settles it: a ``body`` names a ``transform``, and every one
+    of them is the identity.  If Fusion ever writes a non-identity here, this
+    fails and the renderer needs to start applying it.
+    """
+    identity = np.eye(3)
+    found = 0
+    for child in opened.documents():
+        for body in child.bodies:
+            for solid in Shape(body.model()).solids():
+                entity = solid.transform_entity
+                if entity is None:
+                    continue
+                found += 1
+                axes = [value for tag, value in entity.fields if tag == Tag.DIRECTION]
+                scales = [value for tag, value in entity.fields if tag == Tag.DOUBLE]
+                assert len(axes) >= 4, f"transform #{entity.index} has {len(axes)} directions"
+                assert np.allclose(np.array(axes[:3], dtype=float), identity)
+                assert np.allclose(np.array(axes[3], dtype=float), 0.0)
+                assert not scales or scales[0] == pytest.approx(1.0)
+    assert found, "no body in this document carries a transform"

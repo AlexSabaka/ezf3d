@@ -166,8 +166,6 @@ def test_render_writes_a_png_and_reports_what_it_drew(bhujha, tmp_path: Path):
     # remains is reported rather than faked.
     assert data["omitted"] * 20 < data["polylines"]
     assert data["chord_approximated"] == 0
-    # More than one body means no assembly placement; the caller is told.
-    assert data["unplaced"] is True
 
 
 def test_render_chords_flag_adds_the_omitted_edges(sucker, tmp_path: Path):
@@ -178,14 +176,13 @@ def test_render_chords_flag_adds_the_omitted_edges(sucker, tmp_path: Path):
     assert chorded["polylines"] > plain["polylines"]
 
 
-def test_render_single_body_is_placed(wheel, tmp_path: Path):
+def test_render_accepts_a_single_body(wheel, tmp_path: Path):
     import ezf3d as _ezf3d
 
     with _ezf3d.readfile(wheel) as doc:
         uuid = doc.bodies[0].uuid[:8]
     data = payload("render", str(wheel), "--out", str(tmp_path / "one.png"), "--body", uuid)["data"]
     assert data["bodies"] == 1
-    assert data["unplaced"] is False
 
 
 def test_render_turntable_makes_a_contact_sheet(wheel, tmp_path: Path):

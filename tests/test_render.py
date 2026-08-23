@@ -205,8 +205,6 @@ def test_single_body_render_is_smaller_than_the_whole_document(bhujha, tmp_path:
         whole = build_scene(doc)
         one = build_scene(doc, body=doc.bodies[0].uuid[:8])
     assert one.bodies == 1
-    assert not one.unplaced
-    assert whole.unplaced
     assert len(one.segments) < len(whole.segments)
 
 
