@@ -372,3 +372,33 @@ def test_params_says_so_when_a_member_has_none(focuser):
     assert empty
     for row in empty:
         assert row["declared"] == 0 and row["table"] == 0
+
+
+def test_timeline_reports_features_in_order(sucker):
+    data = payload("timeline", str(sucker))["data"]
+    (document,) = data["documents"]
+    assert len(document["entries"]) == 58
+    assert not document["unknown_labels"]
+    assert not document["over_counter"]
+    assert [entry["index"] for entry in document["entries"]] == list(range(58))
+    tenth = document["entries"][9]
+    assert tenth["name"] == "Mirror" and tenth["kind"] == "MirrorPattern"
+    # Created after most of the design, tenth in the timeline.
+    assert tenth["oid"] > document["entries"][10 - 2]["oid"]
+    # The registry counts what was ever issued, so it exceeds what is live.
+    assert sum(document["declared"].values()) == 83
+
+
+def test_timeline_kinds_view_shows_live_against_issued(sucker):
+    code, out = invoke("timeline", str(sucker), "--kinds")
+    assert code == 0
+    assert "live" in out and "issued" in out
+    assert "Sketch" in out
+
+
+def test_timeline_says_so_when_a_member_has_none(focuser):
+    data = payload("timeline", str(focuser))["data"]
+    empty = [row for row in data["documents"] if not row["entries"]]
+    assert empty
+    for row in empty:
+        assert row["oid"] == 0 and not row["declared"]

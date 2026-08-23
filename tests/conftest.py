@@ -201,3 +201,18 @@ def read_design_cached(_design_cache):
         return _design_cache[key]
 
     return get
+
+
+@pytest.fixture
+def timelines(opened, sample: Path, _design_cache):
+    """``(child document, Timeline)`` for every document with a design."""
+    from ezf3d.model.timeline import read_timeline
+
+    key = ("timeline", sample)
+    if key not in _design_cache:
+        _design_cache[key] = [
+            (child, read_timeline(child.design)) for child in opened.documents() if child.design
+        ]
+    if not _design_cache[key]:
+        pytest.skip("no design segment in this sample")
+    return _design_cache[key]
