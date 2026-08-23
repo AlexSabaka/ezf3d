@@ -9,7 +9,7 @@ here was derived by reading real documents, and every claim is exercised by a te
 | [container.md](container.md) | The ZIP shell, Zstandard entries, `.f3z` packages |
 | [neutron-streams.md](neutron-streams.md) | The length-prefixed serializer, manifests, segment streams |
 | [asm.md](asm.md) | `ASM BinaryFile` — the Shape Manager B-Rep bodies |
-| [graphics-cache.md](graphics-cache.md) | The OGS display mesh (partially decoded) |
+| [graphics-cache.md](graphics-cache.md) | The OGS display mesh — Fusion's own tessellation |
 | [unknowns.md](unknowns.md) | What is still opaque, and what it would unlock |
 
 ## Shape of a document

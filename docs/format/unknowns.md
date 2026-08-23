@@ -52,24 +52,64 @@ Spline **curves** are unaffected and are used: an edge knows two points its curv
 contain, so an approximation is validated before being trusted, and 94 % of spline edges
 pass with a worst miss of 8.3e-05 cm.
 
+Fusion's own cached mesh has since confirmed this independently, and sharpened it: over
+matched faces, cached vertices sit within 1e-07 cm of every analytic surface ezf3d reads
+and 2.3e-02 cm from the spline surface it picks. The surfaces are read correctly; the
+wrong one is being chosen.
+
 **Unlocks:** the last ~4 % of faces on the sample designs, and complete meshes for
 spline-heavy parts.
 
 ## Tessellation gaps (ezf3d's, not the format's)
 
-Two limitations in ezf3d's own triangulation, recorded here so they are not mistaken for
-format problems:
-
-**Faces with several holes can leave non-manifold edges.** Bridging a hole into its outer
-loop cuts the polygon so the ear clipper can see one outline, and on a face with five
-holes the cuts occasionally overlap. 108 of 144 closed, fully meshed solids come out
-watertight; the rest carry a handful of edges used more than twice. `ezf3d mesh` reports
-the rate rather than assuming it.
+Recorded here so they are not mistaken for format problems.
 
 **Notched regions on a curved surface fall back to a fan.** A face whose parameter-space
 outline is monotone in neither direction cannot be walked as a strip, and a fan cuts the
-chord. 12 of 6,109 cone faces across the samples; they are counted in
-`faces_over_tolerance`.
+chord. Those faces are reported rather than meshed once they stray four times past the
+tolerance — 85 of Robotic_Bhujha's 2,405, 90 of SUCKER's 3,498.
+
+**Periodic faces ezf3d cannot cut.** A face wrapping in *u* with more than the two rings
+a strip needs is reported: 30 in the wheel, 4 in SUCKER.
+
+**A few faces with holes still cannot be bridged.** Splicing a hole into its outer loop
+has to cut to a vertex the hole can actually see, and two constructions are tried — a ray
+cast to the right, then the nearest vertex to the right. Neither dominates the other, and
+on 27 faces across the four samples neither produces a triangulation of the right area.
+Those faces are reported, not emitted: 2 in the wheel, 4 in SUCKER, 21 in the `.f3z`,
+none in Robotic_Bhujha.
+
+### Resolved: holes that were being filled in
+
+Splicing a hole into its outer loop repeats two vertices, and an ear-clipping containment
+test that went by index found those duplicates on every candidate ear, rejected all of
+them, and fanned over the whole outline. Faces came out with their holes filled and
+closed solids came out non-manifold: 80 of Robotic_Bhujha's 116 closed solids watertight,
+and the wheel reporting **2,003 cm²** of surface where its meshable faces come to **718**.
+
+It was invisible to every check the suite had. Filled triangles lie on the plane like any
+other, so the deviation check passed; they close the surface, so watertightness passed;
+there were the same number of them, so a count passed. **Fusion's own cached mesh is what
+showed it** — see [graphics-cache.md](graphics-cache.md#it-found-a-bug).
+
+Robotic_Bhujha is now 116 of 116 and the `.f3z` 296 of 296, and `tessellate_face` rejects
+any multi-loop face whose triangles do not come to the *unsigned* area its loops enclose.
+Unsigned matters: a fan that covers the hole emits it with the opposite winding, so the
+signed total still comes out right and only the absolute total gives it away.
+
+### Resolved: loops that bound another face
+
+A body saved with rollback history can leave a loop whose `next` points at a loop
+bounding a **different face** — 9 of the `.f3z` sample's 19,658, none at all in the three
+plain designs. Following one hands a face an outline that is not on its surface: a plane
+at *x* = -0.3 was given a second loop 2.9 cm away at *x* = 2.6.
+
+The loop's own `face` pointer looked like the answer and is not — two faces can reach one
+loop record and the pointer names only one of them, sometimes the other one. Geometry
+decides instead: a loop whose points do not lie on the face's surface is not that face's
+loop. The separation is clean, over 25,803 loops the 99.9th percentile distance is
+1.2e-05 cm and three exceed a thousandth, so the two faces this rejects are rejected on
+centimetres rather than on a judgement call.
 
 ## Header words of unclear role
 
@@ -81,17 +121,6 @@ chord. 12 of 6,109 cone faces across the samples; they are counted in
 
 **Unlocks:** nothing urgent. Recorded so a future contradiction is noticed rather than
 silently absorbed.
-
-## Spline geometry
-
-**Status:** located and bounded, not evaluated.
-
-`intcurve`, `pcurve` and `spline` records wrap `int_int_cur` / `exp_par_cur` / `nubs`
-subtypes in balanced `0x0F` … `0x10` brackets. The brackets are enough to walk past them;
-the knot vectors and control points inside are not yet read.
-
-**Unlocks:** exact tessellation of every body rather than only the fully analytic ones.
-This is the hardest single item on the roadmap.
 
 ## ASM tag attributes
 
@@ -116,7 +145,13 @@ decoding the blobs.
 
 ## OGS graphics cache
 
-See [graphics-cache.md](graphics-cache.md).
+Decoded; see [graphics-cache.md](graphics-cache.md). What is still unread there is the
+attribute side — colour, visibility and transforms — and the sketch display geometry.
+
+One lead worth recording: the `.f3z` sample's cache draws **ten bodies at once**, and
+every one of its 5,292 edge polylines ends on a `point` record of one of them. If those
+bodies are modelled about their own frames, the cache holds the placement — which is
+exactly what Phase 3 needs and has no other source yet.
 
 ## Design configuration tables
 

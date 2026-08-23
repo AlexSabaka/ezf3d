@@ -149,6 +149,19 @@ A body file can hold **several `body` records describing the same solid** — on
 state — all sharing a single lump and shell chain. In one sample three `body` records
 reach an identical set of 423 faces. Traversal de-duplicates so a face is visited once.
 
+**A face's loop chain can run past the end of the face.** A body saved with rollback
+history can leave a loop whose `next` points at a loop bounding a different face — 9 of
+the `.f3z` sample's 19,658, none at all in the three plain designs. A planar face at
+*x* = -0.3 acquired a second outline 2.9 cm away at *x* = 2.6 and triangulated into
+29.1 cm² where it encloses 0.8.
+
+**The loop's own `face` pointer does not settle it.** Two faces in a rolled-back design
+can reach one loop record, and the one it names is not always the one whose surface its
+points lie on: one loop names face 48496 while sitting 3.4e-10 cm from face 43722's
+plane, which is the face that reached it. Geometry settles it instead, and cleanly —
+over 25,803 loops the 99.9th percentile distance to the face's own surface is 1.2e-05 cm
+and only three exceed a thousandth.
+
 **Tolerant topology** appears as `tedge` (578), `tvertex` (913) and `tcoedge` (4276).
 Each derives from its base class with the same pointer layout plus trailing tolerance
 fields, so resolving by *base* class handles them without special cases. A `tcoedge`

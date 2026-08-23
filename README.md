@@ -4,15 +4,20 @@ Read Autodesk Fusion 360 `.f3d` / `.f3z` designs **without running Fusion**. A
 pip-installable Python library and CLI, in the spirit of
 [`ezdxf`](https://github.com/mozman/ezdxf) — `ezf3d.readfile(path)` and you're in.
 
-**Status:** alpha. Reading, inspection, B-Rep traversal, analytic geometry, tessellation,
-mesh export and offscreen rendering work today. Spline evaluation, feature-graph
-transpilation and simulation are on the roadmap below.
+**Status:** alpha. Reading, inspection, B-Rep traversal, analytic geometry, spline
+curves, tessellation, mesh export, offscreen rendering and Fusion's own cached display
+mesh all work today. Spline *surfaces*, feature-graph transpilation and simulation are on
+the roadmap below.
 
 Exercised against four real designs: 42 B-Rep bodies, 99.8 MB of Shape Manager data,
 every file walked to its terminator with no unknown tokens. The geometry layer is checked
 against the format's own redundancy — for every edge reachable from a body with ordinary
 topology, the vertex must lie on the curve the edge names. Over **95,668 endpoints the
 worst miss is 2.2e-07 cm**, well inside the kernel's own tolerance.
+
+Where a design carries Fusion's own tessellation, that becomes a second, independent
+check: cached vertices sit within **1e-07 cm** of every analytic surface ezf3d reads, and
+every one of the cache's edge polylines ends on a B-Rep vertex.
 
 ## Why this exists
 
@@ -41,7 +46,15 @@ ezf3d bodies  <file>              # per-body ASM topology census + geometry hist
 ezf3d dump    <file> --out <dir>  # explode the archive, decompressed
 ezf3d thumb   <file> --out <png>  # extract the embedded preview
 ezf3d raw     <file> <entry>      # forensic token/hex dump of any stream
+ezf3d render  <file> --out <png>  # wireframe or --shaded, six views plus iso, --turntable
+ezf3d mesh    <file>              # tessellate and report coverage, deviation, watertightness
+ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
+ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
 ```
+
+`mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
+read Fusion's cached mesh, or use the cache when it covers the whole body and tessellate
+otherwise.
 
 Every command takes `--json` for machine consumption.
 
@@ -88,7 +101,9 @@ Full notes live in [`docs/format/`](docs/format/).
 - **Phase 2.4 — splines.** ✅ for curves: `nubs`/`nurbs` reading, de Boor evaluation, and
   the interning table. Spline *surfaces* are read but not yet trusted — see
   [docs/format/unknowns.md](docs/format/unknowns.md).
-- **Phase 2.5 — the OGS cached-mesh fast path.**
+- **Phase 2.5 — the OGS cached-mesh fast path.** ✅ the scene graph and buffer
+  descriptors, cross-validated against the ASM tessellation — which is how a
+  hole-triangulation bug and a stale-loop bug were found.
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
   tree, joints, materials.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
@@ -102,15 +117,17 @@ happens through the transpile path.
 ## Development
 
 ```bash
-uv run pytest                  # everything, ~2.5 min over 100 MB of sample CAD
-uv run pytest -m "not slow"    # the inner loop, ~1 min
+uv run pytest                  # everything, ~11 min over 100 MB of sample CAD
+uv run pytest -m "not slow"    # the inner loop, ~3.5 min
 uv run ruff check . && uv run ruff format --check .
 ```
 
 Tests run against real designs rather than fixtures, and check the format against its own
 internal redundancy — a curve evaluated at its edge's parameter must reach the vertex, a
-face's triangles must lie on the surface the face names. The `slow` marker covers the
-exhaustive sweeps that walk every face of every body.
+face's triangles must lie on the surface the face names, a face's mesh must cover its
+outer loop less its holes. The `slow` marker covers the exhaustive sweeps that walk every
+face of every body; the expensive results those sweeps share — parsed documents,
+per-face tessellations, cache comparisons — are computed once per sample and reused.
 
 ## License
 
