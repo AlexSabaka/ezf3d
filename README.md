@@ -50,6 +50,7 @@ ezf3d render  <file> --out <png>  # wireframe or --shaded, six views plus iso, -
 ezf3d mesh    <file>              # tessellate and report coverage, deviation, watertightness
 ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
 ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
+ezf3d components <file>           # the component tree, and which bodies each one owns
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -69,6 +70,8 @@ with ezf3d.readfile("Design.f3d") as doc:
     body.census().faces  # 2006
     body.census().analytic_only  # True -> tessellable without a spline kernel
     len(doc.design.objects())  # 3444 -> design objects, each with an offset and extent
+    design = ezf3d.model.read_design(doc.design)
+    design.components[0].name  # 'SUCKER v2'  -> and .bodies, .features
 ```
 
 `.f3z` packages resolve their reference graph: `readfile` returns the root design, with
@@ -106,9 +109,10 @@ Full notes live in [`docs/format/`](docs/format/).
   descriptors, cross-validated against the ASM tessellation — which is how a
   hole-triangulation bug and a stale-loop bug were found.
 - **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
-  tree, joints, materials. In progress: the meta stream is decoded, and its object index
-  makes the design payload randomly addressable — 14,843 objects in one sample, each
-  with a known offset and extent.
+  tree, joints, materials. In progress: the meta stream is decoded and its object index
+  makes the design payload randomly addressable — 14,843 objects in one sample, each with
+  a known offset and extent — and `ezf3d components` reads the component tree, naming
+  every body in `Breps.BlobParts` exactly once.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`

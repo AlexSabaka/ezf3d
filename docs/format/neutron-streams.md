@@ -177,6 +177,56 @@ roots: ComponentsRoot, ComponentInstancesRoot, BodiesRoot, SketchesRoot, UnitSys
 refs:  StrongRefMetaType, PassiveRefMetaType, IntrinsicMetaTypeuint64
 ```
 
+### The design graph
+
+With every object located, the graph they form reads without decoding a single
+field inside one. Three things carry it.
+
+**The roots name themselves.** An object the meta stream lists as a root opens
+with its own type as a `str8`: `ComponentsRoot`, `BodiesRoot`, `SketchesRoot`,
+`UnitSystems`, `ProteinAssetManager`, `rootInstance`, `AssetSettings`,
+`VisualAnalyses`, `NamedTrackedEntitySet`, `WorkingModelPlaceholderRoot`,
+`OGSSerializer`, and the two configuration triggers. Ordinary objects open with
+an empty string, so a leading name is exactly what marks a root.
+
+**A reference is `0x01` then a `u64` object id.** Read that way,
+`ComponentsRoot` yields precisely the components — one for the wheel and for
+SUCKER, eleven for Robotic_Bhujha, seven for the `.f3z` root.
+
+That pattern is permissive: `0x01` followed by eight bytes that happen to spell
+a small number is common enough that following references transitively reaches
+everything from anywhere. Walking from any one of Robotic_Bhujha's components
+reaches all 22 bodies. So it is trustworthy for reading a record known to be a
+list, and useless for deciding ownership.
+
+**Ids are issued in creation order, so a component owns a contiguous range.**
+Everything between one component's id and the next belongs to it. Component 489
+(`BASE`) owns 493 — its `.smbh` body — 509, its `.smb`, and 510, its feature
+registry.
+
+The evidence is that the ranges come out exactly right:
+
+| sample | components | bodies named | in `Breps.BlobParts` |
+|---|---|---|---|
+| Mk1 Focuser, Wheel 2 | 1 | 2 | 2 |
+| SUCKER | 1 | 2 | 2 |
+| Robotic_Bhujha | 11 | 22 | 22 |
+| Focuser Mk1 (3 documents) | 7 + 1 + 1 | 14 + 1 + 1 | 14 + 1 + 1 |
+
+Every component owns precisely two bodies — the `.smbh` carrying rollback
+history and the `.smb` without — and every blob on disk has exactly one owner.
+The two counts come from different parts of the archive found by different
+scans, so their agreement is a real check.
+
+It also settles the registry question: **Robotic_Bhujha's eleven feature
+registries are its eleven components**, one each. A component with no timeline
+of its own has none; two of the package's members are like that.
+
+**A component's name is the last wide string before its trailing revision.**
+Fusion writes a GUID there for a component the user never named — two of
+Robotic_Bhujha's eleven — and `(Unsaved)` for a design saved from an unsaved
+state.
+
 ### The type names are a dictionary, not a timeline
 
 They arrive in **registries**: one entry per kind, sorted by name, that the objects index
