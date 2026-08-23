@@ -340,3 +340,35 @@ def test_components_renders_for_humans(wheel):
     code, out = invoke("components", str(wheel))
     assert code == 0
     assert "bodies named by the graph" in out
+
+
+def test_params_reports_names_units_and_values(bhujha):
+    data = payload("params", str(bhujha))["data"]
+    (document,) = data["documents"]
+    assert document["declared"] == len(document["parameters"]) > 400
+    assert not document["unreadable"]
+    assert not document["literals_disagreeing"]
+    assert document["manager"] == document["table"] - 1
+    first = document["parameters"][0]
+    assert first["name"] == "d1"
+    assert first["expression"] == "300 mm"
+    # Stored in centimetres, shown in the unit the designer typed.
+    assert first["value"] == 30.0
+    assert first["display"] == 300.0
+    assert first["component"] == "Robotic_Bhujha"
+
+
+def test_params_filters_by_component(bhujha):
+    code, out = invoke("params", str(bhujha), "--component", "jaw", "--limit", "3")
+    assert code == 0
+    assert "jaw" in out
+    assert "more (--limit 0 for all)" in out
+
+
+def test_params_says_so_when_a_member_has_none(focuser):
+    data = payload("params", str(focuser))["data"]
+    assert len(data["documents"]) == 3
+    empty = [row for row in data["documents"] if not row["parameters"]]
+    assert empty
+    for row in empty:
+        assert row["declared"] == 0 and row["table"] == 0

@@ -162,3 +162,42 @@ def meshed_faces(opened, sample: Path, _face_mesh_cache):
             for face in Shape(body.model()).faces()
         ]
     return _face_mesh_cache[sample]
+
+
+@pytest.fixture(scope="session")
+def _design_cache():
+    """The design graph and its parameters, read once per sample.
+
+    Both walk the whole bulk stream — 6.4 MB in one of the package's members —
+    and several tests want the same answer.  Tests only read.
+    """
+    return {}
+
+
+@pytest.fixture
+def parameter_sets(opened, sample: Path, _design_cache):
+    """``(child document, Parameters)`` for every document with a design."""
+    from ezf3d.model.parameters import read_parameters
+
+    key = ("parameters", sample)
+    if key not in _design_cache:
+        _design_cache[key] = [
+            (child, read_parameters(child.design)) for child in opened.documents() if child.design
+        ]
+    if not _design_cache[key]:
+        pytest.skip("no design segment in this sample")
+    return _design_cache[key]
+
+
+@pytest.fixture
+def read_design_cached(_design_cache):
+    """:func:`~ezf3d.model.design.read_design`, memoised for the session."""
+    from ezf3d.model.design import read_design
+
+    def get(segment):
+        key = ("design", id(segment))
+        if key not in _design_cache:
+            _design_cache[key] = read_design(segment)
+        return _design_cache[key]
+
+    return get

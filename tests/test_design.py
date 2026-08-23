@@ -18,9 +18,11 @@ from ezf3d.streams.segment import is_feature_type
 
 
 @pytest.fixture
-def designs(opened):
+def designs(opened, read_design_cached):
     """``(child document, Design)`` for every document that carries one."""
-    found = [(child, read_design(child.design)) for child in opened.documents() if child.design]
+    found = [
+        (child, read_design_cached(child.design)) for child in opened.documents() if child.design
+    ]
     if not found:
         pytest.skip("no design segment in this sample")
     return found
