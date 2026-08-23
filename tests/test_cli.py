@@ -402,3 +402,22 @@ def test_timeline_says_so_when_a_member_has_none(focuser):
     assert empty
     for row in empty:
         assert row["oid"] == 0 and not row["declared"]
+
+
+def test_components_reports_material_assignments(sucker):
+    data = payload("components", str(sucker))["data"]
+    (document,) = data["documents"]
+    # One per component plus one per body under BodiesRoot.
+    assert document["assignments"] == 13
+    assert not document["undeclared_assets"]
+    assert set(document["material_assets"].values()) == {"physicalmaterial"}
+    (component,) = document["components"]
+    assert component["appearance"] == "PrismMaterial-018"
+    assert component["body_materials"] == 12
+
+
+def test_components_materials_view_names_a_user_library(focuser):
+    code, out = invoke("components", str(focuser), "--materials")
+    assert code == 0
+    assert "i4 Custom" in out and "PrismMaterial-018" in out
+    assert "declared by the .protein package" in out
