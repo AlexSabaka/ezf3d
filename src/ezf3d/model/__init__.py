@@ -11,6 +11,7 @@ from ezf3d.model.document import (
     readfile,
 )
 from ezf3d.model.parameters import Parameter, Parameters, read_parameters
+from ezf3d.model.timeline import Feature, Timeline, read_timeline
 
 __all__ = [
     "DESIGN_SUFFIX",
@@ -21,10 +22,13 @@ __all__ = [
     "Design",
     "Document",
     "Ef3dError",
+    "Feature",
     "Parameter",
     "Parameters",
+    "Timeline",
     "read_design",
     "read_parameters",
+    "read_timeline",
     "readfile",
 ]
 
@@ -40,6 +44,8 @@ from ezf3d.model.report import (
     ParameterInfo,
     ParametersInfo,
     SegmentInfo,
+    TimelineEntry,
+    TimelineInfo,
     Totals,
 )
 
@@ -55,5 +61,7 @@ __all__ += [
     "ParameterInfo",
     "ParametersInfo",
     "SegmentInfo",
+    "TimelineEntry",
+    "TimelineInfo",
     "Totals",
 ]
