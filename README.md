@@ -52,6 +52,7 @@ ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
 ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
 ezf3d components <file>           # the component tree, and which bodies each one owns
 ezf3d params  <file>              # every parameter: name, role, unit, expression, value
+ezf3d timeline <file>             # the features, in the order the timeline runs them
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -65,7 +66,7 @@ import ezf3d
 
 with ezf3d.readfile("Design.f3d") as doc:
     doc.manifest.doc_type  # 'Fusion Document'
-    doc.design.bulk.declared_feature_types()  # {'ExtrudeFeature', 'Sketch', 'LoftFeature', ...}
+    doc.design.bulk.feature_counters()  # Counter({'Sketch': 17, 'FilletEdgeFeature': 13, ...})
     body = doc.bodies[0]  # nothing parsed yet - bodies load lazily
     body.model().header.kernel_release  # '232.4.0.65535'
     body.census().faces  # 2006
@@ -75,6 +76,8 @@ with ezf3d.readfile("Design.f3d") as doc:
     design.components[0].name  # 'SUCKER v2'  -> and .bodies, .features
     params = ezf3d.model.read_parameters(doc.design)
     params.by_name()["d20"].expression  # '14 mm'  -> and .role, .unit, .value, .display
+    timeline = ezf3d.model.read_timeline(doc.design)
+    [f.kind for f in timeline][:3]  # ['CylinderPrimitive', 'CylinderPrimitive', 'Sketch']
 ```
 
 `.f3z` packages resolve their reference graph: `readfile` returns the root design, with
@@ -115,8 +118,9 @@ Full notes live in [`docs/format/`](docs/format/).
   tree, joints, materials. In progress: the meta stream is decoded and its object index
   makes the design payload randomly addressable — 14,843 objects in one sample, each with
   a known offset and extent. `ezf3d components` reads the component tree, naming every
-  body in `Breps.BlobParts` exactly once, and `ezf3d params` reads all 1,193 parameters
-  of the four samples with their roles, units, expressions and values.
+  body in `Breps.BlobParts` exactly once; `ezf3d params` reads all 1,193 parameters of the
+  four samples with their roles, units, expressions and values; and `ezf3d timeline` reads
+  the features in the order Fusion runs them — an order that is *not* creation order.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`

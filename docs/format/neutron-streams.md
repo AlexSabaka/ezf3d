@@ -227,20 +227,77 @@ Fusion writes a GUID there for a component the user never named — two of
 Robotic_Bhujha's eleven — and `(Unsaved)` for a design saved from an unsaved
 state.
 
-### The type names are a dictionary, not a timeline
+### The registries: a dictionary of kinds, with a counter each
 
 They arrive in **registries**: one entry per kind, sorted by name, that the objects index
 into. SUCKER holds one of 17 entries at offset 9558; Robotic_Bhujha holds eleven, of 2 to
 14 entries each.
 
-Two measurements say a *count* of these names describes the dictionary rather than the
+Two measurements say a *count of the names* describes the dictionary rather than the
 design. No registry repeats a name, and a name's total across the stream is exactly the
 number of registries that declare it — so Robotic_Bhujha's nine
 `DcExtrudeFeatureMetaType` are nine registries that permit an extrude, not nine extrudes.
 
-`ezf3d` therefore reports the declared *set* and how many registries there are, and says
-nothing about how many features a design has, because at this level the stream does not
-say.
+**There is a count, though, and it is beside each name rather than in it.** Every registry
+entry is `str8 name` followed by a `u64`, and that number is Fusion's per-kind counter —
+what its timeline labels count up with. It was being stepped over; this document used to
+say a count here was meaningless, and only the count *of names* is.
+
+Summed across a design's registries, the counter is an **ever-created** tally and so an
+upper bound on the live timeline, not a census of it:
+
+| design | issued | live in the timeline |
+|---|---|---|
+| Mk1 Focuser, Wheel 2 | 3 | 3 |
+| SUCKER | 83 | 58 |
+| Robotic_Bhujha | 269 | 225 |
+| Focuser Mk1 | 615 | 400 |
+
+### The timeline
+
+A feature is an ordinary bulk object with a recognisable tail:
+
+```
+wstr guid              all-zero for most features
+0x00 0x00 0x00
+u32 n, n x reference   the inputs — sketches, faces, bodies it consumes
+u32 token              0xFFFFFFFF where Fusion wrote none
+wstr name              "Extrude", "Fillet", "Base Feature"; may be empty
+```
+
+A record can hold more than one guid and the tail only reads correctly after one of them,
+so a **named** parse wins over an unnamed one — taking the first guid that merely parses
+cost Robotic_Bhujha all eight of its `Assemble` features.
+
+**Order is not creation order.** Every feature is followed in the object index by a small
+*timeline item*, and one object lists those items in the order the timeline runs. SUCKER's
+list interleaves ids 1270, 12657, 12825 — a feature created near the end of the design
+sitting tenth, which is what dragging the timeline marker back and inserting there
+produces. Ordering by object id would put it last.
+
+Nothing points from an item back to its feature: the feature is simply the object *before*
+it in the index. That is what identifies the list among every other reference list in the
+stream — ezf3d accepts only a list whose every entry resolves that way, and takes the
+longest. It resolves 3 of 3, 58 of 58, 225 of 225 and 400 of 400, and there is exactly one
+such list per design. Relaxing it to "or the reference is itself feature-shaped" turned
+seven body-appearance records into a seven-entry timeline in a package member that
+declares no feature kind at all.
+
+The name is the label Fusion shows, and it is not always the registry kind: `RemoveBody`
+for `DeleteBody`, `CopyPasteBodies` for `PasteBodies`, `C-Pattern` for `CircularPattern`,
+`Fillet` for `FilletEdgeFeature`, `Position` for `SnapshotFeature`. Most are the kind with
+`Feature` dropped, or the same name with its spaces removed.
+
+Two checks say the reading is right rather than merely self-consistent, and both come from
+the registry, which is written separately from the list: **every label names a kind the
+registry declares**, and **no kind appears in the timeline more often than its counter says
+was ever issued**. Both hold for all four samples.
+
+`ezf3d timeline` also counts the named features a design holds that the list does *not* —
+2 in SUCKER, 35 in Robotic_Bhujha, 190 in the Focuser package. In the single-component
+designs those are deleted or superseded work; in Robotic_Bhujha they are its joint
+origins, component creation and placement, which this list does not carry. Said out loud,
+because a timeline that quietly drops a design's joints reads as complete.
 
 ### Match whole strings, not raw bytes
 

@@ -16,13 +16,14 @@ The difference matters. A decoder can now be written for one type at a time and 
 against exactly the bytes of one record, rather than having to parse a 2.7 MB stream
 sequentially to reach anything.
 
-Two record types are now decoded field by field: the component (its name and the id
-range it owns) and the **parameter** — name, role, unit, expression and value, 1,193 of
-them across the four samples, each checked four ways. See
+Three record types are now decoded field by field: the component (its name and the id
+range it owns), the **parameter** — name, role, unit, expression and value, 1,193 of them
+across the four samples, each checked four ways — and the **feature**'s tail, enough for
+its name, its inputs and its place in the timeline. See
 [neutron-streams.md](neutron-streams.md#parameters). The rest are still bytes.
 
-**Unlocks:** sketch entities and constraints, the ordered feature timeline, feature
-payloads, joints. Everything Phase 3.4 onwards and Phase 4 need.
+**Unlocks:** sketch entities and constraints, feature payloads, joints. Everything Phase
+3.5 onwards and Phase 4 need.
 
 ## Resolved since first writing
 
@@ -58,6 +59,29 @@ role are zero in every record seen and are skipped rather than named.
 
 ezf3d does not evaluate expressions. `d155 = d154` and `1.5 in / 2` are reported as
 written; the stored value is what it reports as the value.
+
+### The timeline order
+
+Decoded; see [neutron-streams.md](neutron-streams.md#the-timeline). The list is identified
+by the fact that every entry resolves to the object *preceding* it in the index, and
+checked against the registry two ways.
+
+What is **not** established is that this list is everything Fusion shows. It holds all of a
+single-component design's features, but Robotic_Bhujha's 35 joint origins, component
+creations and placements sit outside it, and no second ordered list holds them — the ones
+that exist are reached by direct reference, with no order to read. `ezf3d timeline` counts
+what is outside rather than implying the list is the whole timeline.
+
+There is also no internal ground truth for the *order* itself: a list is a list, and
+nothing in the file says it is the timeline. The evidence is circumstantial and good — the
+sequence reads like one, and it disagrees with creation order exactly where a designer
+would have dragged the marker back — but confirming it means opening the file in Fusion.
+
+The `u32` before a feature's name is unread: it is `0xFFFFFFFF` on sketches, work planes
+and paste/remove-body, and an ascending number elsewhere, but it is not the timeline index
+and not a merge key. The `<u32 k> <f64> <u32 k>` triples in feature and item records look
+like keyed attributes — the values are small fractions that behave like recompute times —
+and are not read either.
 
 ## Spline surface identification
 
