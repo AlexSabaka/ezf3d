@@ -65,6 +65,10 @@ TYPE_NAME_RE = re.compile(
     r"[A-Za-z][A-Za-z0-9_]{3,60}(?:MetaType|Root|Manager|Attributes)[A-Za-z0-9_]*"
 )
 
+#: Largest per-kind counter treated as real.  Guards against reading eight
+#: bytes of something else as a tally; the largest seen is 171.
+_MAX_FEATURE_COUNTER = 1_000_000
+
 #: Prefix Fusion gives a timeline feature's meta-type.  ``PassiveRefMetaType``,
 #: ``StrongRefMetaType`` and the intrinsics also end in ``MetaType`` and are not
 #: features, so the prefix is what selects rather than the suffix.
@@ -206,15 +210,40 @@ class BulkStream:
     def declared_feature_types(self) -> set[str]:
         """The timeline feature kinds this design declares, prefix and suffix stripped.
 
-        A **set**, not a count: the stream declares each kind once, so there is
-        no number here to report.  How many extrudes a design actually has is
-        the timeline's business, not the registry's.
+        A **set**, because the stream declares each kind once per registry.
+        How many of a kind a design has is :meth:`feature_counters`, which
+        reads the number Fusion writes beside each name.
         """
         return {
             name[len(FEATURE_PREFIX) : -len(FEATURE_SUFFIX)]
             for _, name in self.named_types()
             if is_feature_type(name)
         }
+
+    def feature_counters(self) -> Counter[str]:
+        """How many of each kind the registries say were issued.
+
+        Each registry entry is ``str8 name`` followed by a ``u64``, and that
+        number is Fusion's per-kind counter -- what its timeline labels count
+        up with.  Summed across a design's registries it is an *ever-created*
+        tally, so it is an upper bound on the live timeline rather than a
+        census of it: SUCKER declares 83 and its timeline holds 58.
+
+        This corrects what this module used to say.  Counting the *names* is
+        still meaningless -- each registry writes each kind once -- but there
+        was a count beside them all along, and it was being stepped over.
+        """
+        counters: Counter[str] = Counter()
+        for offset, name in self.named_types():
+            if not is_feature_type(name):
+                continue
+            at = offset + 4 + len(name)
+            if at + 8 > len(self.body):
+                continue
+            value = int.from_bytes(self.body[at : at + 8], "little")
+            if value <= _MAX_FEATURE_COUNTER:
+                counters[name[len(FEATURE_PREFIX) : -len(FEATURE_SUFFIX)]] += value
+        return counters
 
 
 def is_feature_type(name: str) -> bool:
