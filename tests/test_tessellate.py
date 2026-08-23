@@ -21,7 +21,7 @@ TOLERANCE = DEFAULT_CHORD_TOLERANCE
 
 
 @pytest.mark.slow
-def test_triangles_stay_on_their_surface(opened):
+def test_triangles_stay_on_their_surface(meshed_faces):
     """A triangle spanning too much parameter space cuts the chord.
 
     Fanning across a cylinder wall instead of walking it looks plausible in a
@@ -31,28 +31,23 @@ def test_triangles_stay_on_their_surface(opened):
     """
     curved = over = planar = stray = 0
     worst = 0.0
-    for child in opened.documents():
-        for body in child.bodies:
-            for face in Shape(body.model()).faces():
-                surface = face.surface
-                if surface is None or isinstance(surface, SplineSurface):
-                    continue
-                mesh, reason, deviation = tessellate_face(face, TOLERANCE)
-                if reason is not None or mesh.is_empty:
-                    continue
-                if isinstance(surface, Plane):
-                    planar += 1
-                    distances = [
-                        surface.distance_to(point) for point in mesh.corners().reshape(-1, 3)
-                    ]
-                    if float(np.median(distances)) > 1e-6:
-                        stray += 1
-                    continue
-                curved += 1
-                centroids = mesh.corners().mean(axis=1)
-                deviation = max((surface.distance_to(point) for point in centroids), default=0.0)
-                if deviation > TOLERANCE * 2.0:
-                    over += 1
+    for face, mesh, reason, _ in meshed_faces:
+        surface = face.surface
+        if surface is None or isinstance(surface, SplineSurface):
+            continue
+        if reason is not None or mesh.is_empty:
+            continue
+        if isinstance(surface, Plane):
+            planar += 1
+            distances = [surface.distance_to(point) for point in mesh.corners().reshape(-1, 3)]
+            if float(np.median(distances)) > 1e-6:
+                stray += 1
+            continue
+        curved += 1
+        centroids = mesh.corners().mean(axis=1)
+        deviation = max((surface.distance_to(point) for point in centroids), default=0.0)
+        if deviation > TOLERANCE * 2.0:
+            over += 1
 
     assert curved and planar, "sample produced no analytic faces"
     # Hard guarantee: a face whose triangulation strays four times past the
@@ -154,6 +149,77 @@ def test_volume_converges_as_the_tolerance_tightens(bhujha):
     # 0.2 %, against 1.4 % for the step before it.
     assert abs(fine - medium) < abs(medium - coarse)
     assert abs(fine - medium) / abs(fine) < 0.005
+
+
+@pytest.mark.slow
+def test_every_vertex_of_a_meshed_face_lies_on_its_surface(meshed_faces):
+    """A loop reached from a face need not be a loop *of* that face.
+
+    A ``next`` chain in a rolled-back design can run into a loop bounding a
+    different face, and the loop's own ``face`` pointer does not settle it:
+    two faces can reach one record and it names only one of them.  So the
+    tessellator asks the geometry, and this checks that it did.
+
+    Asking the mesh rather than re-walking the loops is both cheaper and
+    stronger.  Cheaper because the mesh is already in hand; stronger because
+    tessellation adds no Steiner points, so every vertex either came from a
+    loop polyline or was computed on the surface — and both must be on it.
+    One outline in the samples sits 2.9 cm out, which is what this rejects.
+    """
+    checked = 0
+    for face, mesh, reason, _ in meshed_faces:
+        surface = face.surface
+        if surface is None or isinstance(surface, SplineSurface):
+            continue
+        if reason is not None or mesh.is_empty:
+            continue
+        worst = max(abs(surface.distance_to(point)) for point in mesh.vertices)
+        assert worst <= max(TOLERANCE, 1e-4), (
+            f"a vertex of face#{face.index} sits {worst:.3e} cm off its surface"
+        )
+        checked += 1
+    assert checked, "no analytic face was meshed"
+
+
+@pytest.mark.slow
+def test_triangulation_respects_a_face_s_holes(meshed_faces):
+    """A meshed face must cover its outer loop less its holes — exactly.
+
+    Nothing else in this suite can see a hole being filled in.  Filled-in
+    triangles sit on the plane like any other, so the deviation check passes;
+    they close the surface, so watertightness passes; and their count is the
+    same, so a triangle tally passes.  What gives it away is area, and it gave
+    it away only once Fusion's own cached mesh showed three sectors of a
+    handwheel triangulated as a solid disc.
+
+    The cause was a bridged hole: splicing one into its outer loop repeats two
+    vertices, an ear test that went by index found those duplicates on every
+    candidate ear, and the clipper stalled and fanned.  The wheel's surface
+    area came out at 2003 cm2 where its meshable faces come to 718.
+    """
+    from ezf3d.mesh.tessellate import _signed_area, _to_uv, loop_polyline
+
+    checked = 0
+    for face, mesh, reason, _ in meshed_faces:
+        loops = list(face.loops())
+        # Only a plane's parameter-space area is its real area.
+        if len(loops) < 2 or not isinstance(face.surface, Plane):
+            continue
+        if reason is not None or mesh.is_empty:
+            continue
+        rings = [loop_polyline(loop, TOLERANCE) for loop in loops]
+        if any(ring is None for ring in rings):
+            continue
+        wanted = abs(sum(_signed_area(_to_uv(face.surface, ring)) for ring in rings))
+        # The comparison is 3D area against parameter-space area, and a loop
+        # can sit a fraction of a micron off its own plane — 1.0e-05 cm at
+        # worst in these samples, for 1.6e-06 of relative area.  The failure
+        # this guards against was 3600 %.
+        assert mesh.area() == pytest.approx(wanted, rel=1e-4), (
+            f"{len(loops)}-loop face covers {mesh.area():.4f} where its loops enclose {wanted:.4f}"
+        )
+        checked += 1
+    assert checked, "no multi-loop planar face in this sample"
 
 
 def test_unsupported_faces_are_named_not_dropped(sucker):

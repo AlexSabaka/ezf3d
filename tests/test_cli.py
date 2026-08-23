@@ -256,3 +256,64 @@ def test_shaded_render_draws_triangles(wheel, tmp_path: Path):
     assert data["triangles"] > 0
     assert out.read_bytes().startswith(b"\x89PNG")
     assert data["ink_bounds"] is not None
+
+
+def test_ogs_reports_what_fusion_cached(wheel):
+    data = payload("ogs", str(wheel))["data"]
+    assert data["faces"] == 423
+    assert data["edges"] == 1006
+    assert data["triangles"] > 10_000
+    assert data["body"].startswith("068db28d")
+    assert data["covers_body"] is True
+    # The blob is read whole, and every cached corner is a B-Rep vertex.
+    assert (data["blob_gap_bytes"], data["blob_overlap_bytes"]) == (0, 0)
+    assert data["corner_coverage"] == 1.0
+
+
+def test_ogs_on_a_design_without_one_fails_cleanly(bhujha):
+    code, out = invoke("ogs", str(bhujha), "--json")
+    assert code == 1
+    assert json.loads(out)["ok"] is False
+
+
+def test_ogs_renders_for_humans(wheel):
+    code, out = invoke("ogs", str(wheel))
+    assert code == 0
+    assert "cached triangles" in out
+
+
+def test_mesh_from_the_cache_skips_tessellation(wheel):
+    """``--source ogs`` reports the cache, not a tessellation."""
+    data = payload("mesh", str(wheel), "--source", "ogs")["data"]
+    assert data["triangles"] == 14984
+    assert "faces_meshed" not in data
+    assert data["covers_body"] is True
+
+
+def test_auto_declines_a_cache_that_covers_part_of_a_body(sucker, tmp_path: Path):
+    """SUCKER's cache holds 608 faces of 2,006, so ``auto`` does not use it.
+
+    Checked through a wireframe render, which exercises the same choice
+    without paying for a tessellation: had the cache been taken, the drawing
+    would be its 1,579 cached edges rather than the B-Rep's thousands.
+    """
+    assert payload("ogs", str(sucker))["data"]["covers_body"] is False
+    out = tmp_path / "auto.png"
+    data = payload(
+        "render", str(sucker), "--out", str(out), "--source", "auto", "--tolerance", "1.0"
+    )["data"]
+    assert data["source"] == "auto"
+    assert data["polylines"] > 5000, "auto drew the partial cache"
+
+
+def test_export_from_the_cache(wheel, tmp_path: Path):
+    out = tmp_path / "cached.stl"
+    data = payload("export", str(wheel), "--out", str(out), "--source", "ogs")["data"]
+    assert out.stat().st_size == data["bytes"]
+    assert data["triangles"] == 14984
+
+
+def test_source_rejects_an_unknown_value(wheel):
+    code, out = invoke("mesh", str(wheel), "--source", "wat", "--json")
+    assert code == 1
+    assert json.loads(out)["ok"] is False

@@ -86,6 +86,22 @@ def opened(sample: Path, _open_documents):
 
 
 @pytest.fixture
+def shared_document(_open_documents):
+    """Look up any sample's already-parsed document by path.
+
+    For tests that name one sample rather than sweeping all of them: opening
+    it afresh would re-parse its bodies, and the ``.f3z`` alone holds sixteen.
+    """
+
+    def get(path: Path):
+        if path not in _open_documents:
+            _open_documents[path] = ezf3d.readfile(path)
+        return _open_documents[path]
+
+    return get
+
+
+@pytest.fixture
 def opened_design(design: Path, _open_documents):
     """As :func:`opened`, but only for the plain ``.f3d`` samples."""
     if design not in _open_documents:
@@ -117,3 +133,32 @@ def tessellated(opened, sample: Path, _tessellation_cache):
             for body in child.bodies
         ]
     return _tessellation_cache[sample]
+
+
+@pytest.fixture(scope="session")
+def _face_mesh_cache():
+    """Per-face tessellations, computed once per sample.
+
+    Several tests want to look at every face's own mesh — that its triangles
+    lie on its surface, that its outline does, that its area matches its
+    loops.  Running ``tessellate_face`` over every face of every sample takes
+    minutes, and doing it once per test took the suite from two and a half
+    to twenty.  Tests only read.
+    """
+    return {}
+
+
+@pytest.fixture
+def meshed_faces(opened, sample: Path, _face_mesh_cache):
+    """``(face, mesh, reason)`` for every face of the current sample."""
+    from ezf3d.asm.brep import Shape
+    from ezf3d.mesh import DEFAULT_CHORD_TOLERANCE, tessellate_face
+
+    if sample not in _face_mesh_cache:
+        _face_mesh_cache[sample] = [
+            (face, *tessellate_face(face, DEFAULT_CHORD_TOLERANCE))
+            for child in opened.documents()
+            for body in child.bodies
+            for face in Shape(body.model()).faces()
+        ]
+    return _face_mesh_cache[sample]
