@@ -19,6 +19,7 @@ from ezf3d.asm.topology import TopologyCensus, census
 from ezf3d.container.archive import F3DArchive
 from ezf3d.container.layout import AssetFolderLayout, BrepLocation, DocumentLayout, discover_layout
 from ezf3d.container.package import PackageEntry, PackageIndex, read_package_index
+from ezf3d.ogs.cache import GraphicsCache, read_cache
 from ezf3d.streams.manifest import (
     AssetManifest,
     DocumentManifest,
@@ -80,6 +81,7 @@ class Asset:
     bodies: list[Body]
     _archive: F3DArchive
     _segments: dict[str, Segment] | None = field(default=None, repr=False)
+    _cache: GraphicsCache | None = field(default=None, repr=False)
 
     @property
     def segments(self) -> dict[str, Segment]:
@@ -109,6 +111,14 @@ class Asset:
     def has_graphics_cache(self) -> bool:
         """True when Fusion left its tessellated display mesh in the file."""
         return self.layout.has_graphics_cache
+
+    def graphics_cache(self) -> GraphicsCache | None:
+        """Fusion's cached tessellation, or ``None`` if this asset has none."""
+        if self._cache is None:
+            if not self.layout.ogs:
+                return None
+            self._cache = read_cache(self._archive.read, self.layout.ogs)
+        return self._cache
 
     def preview(self) -> bytes | None:
         """The embedded thumbnail PNG, if this asset has one."""

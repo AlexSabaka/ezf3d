@@ -107,7 +107,7 @@ class Tessellation:
         return self.faces_skipped == 0
 
 
-def _loop_polyline(loop: Loop, tolerance: float) -> np.ndarray | None:
+def loop_polyline(loop: Loop, tolerance: float) -> np.ndarray | None:
     """A loop's boundary as one closed 3D polyline, or ``None`` if incomplete.
 
     Points come straight from the shared edge polylines so that the two faces
@@ -698,7 +698,7 @@ def tessellate_face(
 
     rings: list[np.ndarray] = []
     for loop in face.loops():
-        points = _loop_polyline(loop, tolerance)
+        points = loop_polyline(loop, tolerance)
         if points is None:
             return Mesh(), "spline or missing edge in boundary", 0.0
         if len(points) >= 3:
