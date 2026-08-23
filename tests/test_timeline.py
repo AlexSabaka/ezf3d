@@ -14,7 +14,14 @@ from collections import Counter
 
 import pytest
 
-from ezf3d.model.timeline import KIND_ALIASES, kind_of, read_feature, read_timeline
+from ezf3d.model.timeline import (
+    EXTRUDE_DIRECTIONS,
+    EXTRUDE_OPERATIONS,
+    KIND_ALIASES,
+    kind_of,
+    read_feature,
+    read_timeline,
+)
 
 
 def test_every_entry_resolves_to_a_feature(timelines):
@@ -278,3 +285,81 @@ def test_the_join_is_opt_in(wheel, shared_document):
     """Reading the order must not cost a second pass over the stream."""
     segment = shared_document(wheel).design
     assert all(not feature.parameters for feature in read_timeline(segment))
+
+
+# -- 3.6b: what an extrude does -------------------------------------------
+
+#: The Fusion readout of SUCKER's eight extrudes, by timeline position.  This
+#: is the only ground truth this project has for a feature's *choices* rather
+#: than its numbers, so it is written down rather than described.
+SUCKER_EXTRUDES = {
+    4: ("Cut", "OneSide"),
+    6: ("Cut", "OneSide"),
+    27: ("NewBody", "Symmetric"),
+    29: ("Cut", "OneSide"),
+    32: ("Cut", "OneSide"),
+    41: ("Join", "OneSide"),
+    45: ("Join", "OneSide"),
+    57: ("Join", "OneSide"),
+}
+
+
+def test_extrude_settings_match_the_fusion_readout(sucker, shared_document):
+    """Eight extrudes, read out of Fusion by hand and out of the bytes here."""
+    timeline = read_timeline(shared_document(sucker).design)
+    seen = {
+        feature.index + 1: (feature.extrude.operation, feature.extrude.direction)
+        for feature in timeline
+        if feature.kind == "ExtrudeFeature" and feature.extrude
+    }
+    assert seen == SUCKER_EXTRUDES
+
+
+def test_every_extrude_carries_settings_and_nothing_else_does(timelines):
+    """214 of 214 across the samples, and no false positive on another kind.
+
+    The range check on the codes is what buys that: without it a loft and four
+    work planes read as extrudes, because their records also carry a revision
+    string with the right shape after it.
+    """
+    for child, timeline in timelines:
+        for feature in timeline:
+            if feature.kind == "ExtrudeFeature":
+                assert feature.extrude is not None, f"{child.name}: #{feature.index + 1}"
+            else:
+                assert feature.extrude is None, f"{child.name}: {feature.kind}"
+
+
+def test_codes_stay_inside_the_named_sets(timelines):
+    for child, timeline in timelines:
+        for feature in timeline:
+            if feature.extrude is None:
+                continue
+            operation, direction, _ = feature.extrude.codes
+            assert operation in EXTRUDE_OPERATIONS or operation == 3, child.name
+            assert feature.extrude.direction == EXTRUDE_DIRECTIONS[direction]
+
+
+def test_two_sides_is_corroborated_by_the_parameters(bhujha, shared_document):
+    """The one record reading ``TwoSides`` is the one two-sided extrude.
+
+    Direction comes from the feature's own header; ``AgainstDistance`` comes
+    from a separate parameter object attributed by position.  Two different
+    parts of the file agreeing is what makes ``TwoSides`` believable without a
+    Fusion readout of its own — nobody read this design out of Fusion.
+    """
+    from ezf3d.model.parameters import read_parameters
+
+    segment = shared_document(bhujha).design
+    timeline = read_timeline(segment, read_parameters(segment))
+    two_sided = {f.oid for f in timeline if f.role("AgainstDistance") is not None}
+    by_direction = {f.oid for f in timeline if f.extrude and f.extrude.direction == "TwoSides"}
+    assert two_sided, "expected a two-sided extrude"
+    assert two_sided == by_direction
+
+
+def test_settings_do_not_need_the_parameters(sucker, shared_document):
+    """The two readings are independent, so neither may depend on the other."""
+    plain = read_timeline(shared_document(sucker).design)
+    assert all(f.extrude for f in plain if f.kind == "ExtrudeFeature")
+    assert all(not f.parameters for f in plain)

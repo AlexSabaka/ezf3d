@@ -440,3 +440,32 @@ def test_timeline_inputs_renders_for_humans(sucker):
     assert code == 0
     assert "drives" in out and "AlongDistance" in out
     assert "carry at least one parameter" in out
+
+
+def test_timeline_says_what_an_extrude_does(sucker):
+    data = payload("timeline", str(sucker))["data"]
+    (document,) = data["documents"]
+    extrudes = {
+        e["index"] + 1: (e["operation"], e["direction"])
+        for e in document["entries"]
+        if e["kind"] == "ExtrudeFeature"
+    }
+    # The Fusion readout, by timeline position.
+    assert extrudes == {
+        4: ("Cut", "OneSide"),
+        6: ("Cut", "OneSide"),
+        27: ("NewBody", "Symmetric"),
+        29: ("Cut", "OneSide"),
+        32: ("Cut", "OneSide"),
+        41: ("Join", "OneSide"),
+        45: ("Join", "OneSide"),
+        57: ("Join", "OneSide"),
+    }
+    sketch = next(e for e in document["entries"] if e["kind"] == "Sketch")
+    assert sketch["operation"] == "" and sketch["direction"] == ""
+
+
+def test_timeline_inputs_shows_the_operation(sucker):
+    code, out = invoke("timeline", str(sucker), "--inputs", "--limit", "0")
+    assert code == 0
+    assert "does" in out and "Cut · OneSide" in out
