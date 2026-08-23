@@ -81,6 +81,46 @@ class DesignInfo(BaseModel):
     bodies_on_disk: int = 0
 
 
+class ParameterInfo(BaseModel):
+    """One row of ``ezf3d params``."""
+
+    oid: int
+    name: str
+    #: Slot the parameter fills in the feature that owns it, or the sketch
+    #: dimension's own name.
+    role: str = ""
+    unit: str = ""
+    expression: str = ""
+    #: Fusion's internal units: centimetres for lengths, radians for angles.
+    value: float = 0.0
+    #: :attr:`value` converted to :attr:`unit`; ``None`` for a unit ezf3d has
+    #: no factor for.
+    display: float | None = None
+    comment: str = ""
+    #: Component whose id range holds this parameter.
+    component: str = ""
+    #: Schema revision stamped on the record.
+    revision: str = ""
+
+
+class ParametersInfo(BaseModel):
+    """Payload row of ``ezf3d params`` — one per document with a design."""
+
+    document: str
+    #: Entries the name table declares, against records that read.
+    declared: int = 0
+    parameters: list[ParameterInfo] = Field(default_factory=list)
+    #: Declared names whose record did not read; named, never dropped.
+    unreadable: list[str] = Field(default_factory=list)
+    #: Literal expressions re-derived from unit and value, and those that
+    #: disagreed — the check that pins the internal units.
+    literals_checked: int = 0
+    literals_disagreeing: list[str] = Field(default_factory=list)
+    #: Object ids of the name table and the manager every record points back to.
+    table: int = 0
+    manager: int = 0
+
+
 class AssetInfo(BaseModel):
     folder: str
     name: str

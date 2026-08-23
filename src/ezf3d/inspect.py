@@ -14,6 +14,7 @@ from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.topology import KERNEL_UNIT
 from ezf3d.model.design import read_design
 from ezf3d.model.document import Asset, Body, Document
+from ezf3d.model.parameters import read_parameters
 from ezf3d.model.report import (
     AssetInfo,
     BodyInfo,
@@ -24,6 +25,8 @@ from ezf3d.model.report import (
     KernelInfo,
     PackageInfo,
     PackageMember,
+    ParameterInfo,
+    ParametersInfo,
     SegmentInfo,
     Totals,
 )
@@ -61,6 +64,56 @@ def design_infos(document: Document) -> list[DesignInfo]:
             )
         )
     return rows
+
+
+def parameter_infos(document: Document) -> list[ParametersInfo]:
+    """One :class:`ParametersInfo` per document that carries a design segment.
+
+    Each parameter is attributed to a component by the id-range rule
+    :class:`~ezf3d.model.design.Design` documents — the same rule that puts
+    bodies under their owners, so the attribution is only as good as that, and
+    that one is checked against the archive.
+    """
+    rows: list[ParametersInfo] = []
+    for child in document.documents():
+        segment = child.design
+        if segment is None:
+            continue
+        parameters = read_parameters(segment)
+        design = read_design(segment) if parameters.values else None
+        checked, disagreeing = parameters.literal_check()
+        rows.append(
+            ParametersInfo(
+                document=child.name,
+                declared=parameters.declared,
+                parameters=[
+                    ParameterInfo(
+                        oid=parameter.oid,
+                        name=parameter.name,
+                        role=parameter.role,
+                        unit=parameter.unit,
+                        expression=parameter.expression,
+                        value=parameter.value,
+                        display=parameter.display,
+                        comment=parameter.comment,
+                        component=_component_name(design, parameter.oid),
+                        revision=parameter.revision,
+                    )
+                    for parameter in parameters
+                ],
+                unreadable=list(parameters.unreadable),
+                literals_checked=checked,
+                literals_disagreeing=list(disagreeing),
+                table=parameters.table,
+                manager=parameters.manager,
+            )
+        )
+    return rows
+
+
+def _component_name(design, oid: int) -> str:
+    owner = design.owner(oid) if design is not None else None
+    return owner.name if owner is not None else ""
 
 
 def segment_info(document: Document, asset: Asset) -> list[SegmentInfo]:

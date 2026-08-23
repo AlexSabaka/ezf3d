@@ -24,7 +24,7 @@ from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
 from ezf3d.container.archive import UnsupportedCompressionError
 from ezf3d.export.writers import CM_TO_MM, FORMATS, ExportError, write_mesh
-from ezf3d.inspect import body_infos, design_infos, document_info
+from ezf3d.inspect import body_infos, design_infos, document_info, parameter_infos
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
@@ -977,6 +977,85 @@ def components(
             f"{mark}{row.bodies_named}[/] bodies named by the graph, "
             f"{row.bodies_on_disk} in Breps.BlobParts\n"
         )
+
+
+@app.command()
+def params(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    component: Annotated[
+        str | None,
+        typer.Option("--component", help="Only parameters of components whose name contains this."),
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", help="Rows to print per document; 0 for all.")
+    ] = 40,
+) -> None:
+    """The design's parameters: name, role, unit, expression and value."""
+    try:
+        with readfile(path) as doc:
+            rows = parameter_infos(doc)
+            if not rows:
+                raise Ef3dError("this document carries no design segment")
+    except READ_ERRORS as exc:
+        _fail("params", path, exc, as_json)
+        return
+
+    payload = {"documents": [_dump(row) for row in rows]}
+    if as_json:
+        _emit("params", path, payload, True)
+        return
+
+    for row in rows:
+        chosen = [
+            parameter
+            for parameter in row.parameters
+            if component is None or component.lower() in parameter.component.lower()
+        ]
+        console.print(
+            f"[bold]{row.document}[/] [dim]— {row.declared} parameters"
+            + (f", {len(chosen)} shown" if len(chosen) != row.declared else "")
+            + "[/]"
+        )
+        if not chosen:
+            console.print("[dim]no parameters[/]\n")
+            continue
+
+        table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+        for column, justify in (
+            ("component", "left"),
+            ("name", "left"),
+            ("role", "left"),
+            ("expression", "left"),
+            ("value", "right"),
+            ("unit", "left"),
+        ):
+            table.add_column(column, justify=justify, overflow="fold")
+        shown = chosen if limit <= 0 else chosen[:limit]
+        for parameter in shown:
+            value = "[dim]?[/]" if parameter.display is None else f"{parameter.display:g}"
+            table.add_row(
+                parameter.component,
+                parameter.name,
+                parameter.role,
+                parameter.expression,
+                value,
+                parameter.unit or "[dim]—[/]",
+            )
+        console.print(table)
+        if len(shown) < len(chosen):
+            console.print(f"[dim]… {len(chosen) - len(shown)} more (--limit 0 for all)[/]")
+
+        # Two independent fields agreeing is what says the values are read in
+        # the right units, so it is reported rather than assumed.
+        mark = "[green]" if not row.literals_disagreeing else "[yellow]"
+        console.print(
+            f"{mark}{row.literals_checked - len(row.literals_disagreeing)}[/] of "
+            f"{row.literals_checked} literal expressions agree with their stored value"
+        )
+        if row.unreadable:
+            console.print(f"[yellow]{len(row.unreadable)}[/] declared names did not read")
+        console.print()
 
 
 # -- version ---------------------------------------------------------------
