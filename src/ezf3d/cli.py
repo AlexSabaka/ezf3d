@@ -24,7 +24,13 @@ from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
 from ezf3d.container.archive import UnsupportedCompressionError
 from ezf3d.export.writers import CM_TO_MM, FORMATS, ExportError, write_mesh
-from ezf3d.inspect import body_infos, design_infos, document_info, parameter_infos
+from ezf3d.inspect import (
+    body_infos,
+    design_infos,
+    document_info,
+    parameter_infos,
+    timeline_infos,
+)
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
@@ -1056,6 +1062,105 @@ def params(
         if row.unreadable:
             console.print(f"[yellow]{len(row.unreadable)}[/] declared names did not read")
         console.print()
+
+
+@app.command()
+def timeline(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    kinds: Annotated[
+        bool, typer.Option("--kinds", help="Show the per-kind census against the registry.")
+    ] = False,
+    limit: Annotated[
+        int, typer.Option("--limit", help="Rows to print per document; 0 for all.")
+    ] = 40,
+) -> None:
+    """The design's features, in the order the timeline runs them."""
+    try:
+        with readfile(path) as doc:
+            rows = timeline_infos(doc)
+            if not rows:
+                raise Ef3dError("this document carries no design segment")
+    except READ_ERRORS as exc:
+        _fail("timeline", path, exc, as_json)
+        return
+
+    payload = {"documents": [_dump(row) for row in rows]}
+    if as_json:
+        _emit("timeline", path, payload, True)
+        return
+
+    for row in rows:
+        issued = sum(row.declared.values())
+        console.print(
+            f"[bold]{row.document}[/] [dim]— {len(row.entries)} features"
+            + (f", {issued} ever issued" if issued else "")
+            + "[/]"
+        )
+        if not row.entries:
+            console.print("[dim]no timeline[/]\n")
+            continue
+
+        if kinds:
+            _print_kinds(row)
+        else:
+            table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+            for column, justify in (
+                ("#", "right"),
+                ("feature", "left"),
+                ("kind", "left"),
+                ("component", "left"),
+                ("id", "right"),
+                ("inputs", "right"),
+            ):
+                table.add_column(column, justify=justify, overflow="fold")
+            shown = row.entries if limit <= 0 else row.entries[:limit]
+            for entry in shown:
+                table.add_row(
+                    str(entry.index + 1),
+                    entry.name or "[dim]unnamed[/]",
+                    entry.kind or "[dim]—[/]",
+                    entry.component,
+                    str(entry.oid),
+                    str(entry.inputs),
+                )
+            console.print(table)
+            if len(shown) < len(row.entries):
+                console.print(f"[dim]… {len(row.entries) - len(shown)} more (--limit 0 for all)[/]")
+
+        # Both checks come from the registry, which is written separately from
+        # the list, so agreement is evidence rather than a restatement.
+        if row.unknown_labels:
+            console.print(f"[yellow]{len(row.unknown_labels)}[/] labels no registry declares")
+        for line in row.over_counter:
+            console.print(f"[yellow]more live than ever issued[/] — {line}")
+        if not row.unknown_labels and not row.over_counter:
+            console.print(
+                "[green]every[/] feature's kind is one the registry declares, "
+                "and none outruns its counter"
+            )
+        if row.unnamed:
+            console.print(f"[dim]{row.unnamed} entries carry no label[/]")
+        # Named feature records the list does not hold.  Said out loud because
+        # a timeline that quietly drops a design's joints reads as complete.
+        loose = sum(row.outside.values())
+        if loose:
+            top = ", ".join(
+                f"{k} {n}" for k, n in sorted(row.outside.items(), key=lambda kv: -kv[1])[:4]
+            )
+            console.print(f"[dim]{loose} named features sit outside the list — {top}[/]")
+        console.print()
+
+
+def _print_kinds(row: Any) -> None:
+    table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+    for column, justify in (("kind", "left"), ("live", "right"), ("issued", "right")):
+        table.add_column(column, justify=justify, overflow="fold")
+    for kind in sorted(set(row.declared) | set(row.census)):
+        live = row.census.get(kind, 0)
+        issued = row.declared.get(kind, 0)
+        table.add_row(kind, str(live) if live else "[dim]0[/]", str(issued))
+    console.print(table)
 
 
 # -- version ---------------------------------------------------------------

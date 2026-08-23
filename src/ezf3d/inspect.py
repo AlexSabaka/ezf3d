@@ -28,8 +28,11 @@ from ezf3d.model.report import (
     ParameterInfo,
     ParametersInfo,
     SegmentInfo,
+    TimelineEntry,
+    TimelineInfo,
     Totals,
 )
+from ezf3d.model.timeline import read_timeline
 
 #: Enough bytes to cover the ASM header of any body.
 _HEADER_PREFIX = 256
@@ -114,6 +117,49 @@ def parameter_infos(document: Document) -> list[ParametersInfo]:
 def _component_name(design, oid: int) -> str:
     owner = design.owner(oid) if design is not None else None
     return owner.name if owner is not None else ""
+
+
+def timeline_infos(document: Document) -> list[TimelineInfo]:
+    """One :class:`TimelineInfo` per document that carries a design segment.
+
+    Each feature is attributed to a component by the same id-range rule the
+    body mapping is checked on; the timeline's own order comes from the list,
+    not from the ids.
+    """
+    rows: list[TimelineInfo] = []
+    for child in document.documents():
+        segment = child.design
+        if segment is None:
+            continue
+        timeline = read_timeline(segment)
+        design = read_design(segment) if timeline.features else None
+        unknown, over = timeline.check()
+        rows.append(
+            TimelineInfo(
+                document=child.name,
+                oid=timeline.oid,
+                entries=[
+                    TimelineEntry(
+                        index=feature.index,
+                        oid=feature.oid,
+                        name=feature.name,
+                        kind=feature.kind,
+                        component=_component_name(design, feature.oid),
+                        inputs=len(feature.inputs),
+                    )
+                    for feature in timeline
+                ],
+                unnamed=timeline.unnamed(),
+                declared=dict(sorted(timeline.declared.items())),
+                census=dict(sorted(timeline.census().items())),
+                outside=dict(sorted(timeline.outside.items())),
+                unknown_labels=list(unknown),
+                over_counter=[
+                    f"{kind}: {live} live, {counter} issued" for kind, live, counter in over
+                ],
+            )
+        )
+    return rows
 
 
 def segment_info(document: Document, asset: Asset) -> list[SegmentInfo]:

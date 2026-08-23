@@ -36,9 +36,10 @@ class SegmentInfo(BaseModel):
     bulk_size: int
     is_design: bool = False
     #: Timeline feature kinds this segment's registries declare, sorted.  A
-    #: list rather than a count on purpose: the stream declares each kind once
-    #: per registry, so a number here would describe the dictionary and not
-    #: the design.
+    #: list rather than a count on purpose: each registry writes each kind
+    #: once, so counting the *names* describes the dictionary and not the
+    #: design.  How many of a kind were issued is the ``u64`` beside each
+    #: name — ``ezf3d timeline --kinds``.
     declared_features: list[str] = Field(default_factory=list)
     #: How many registries the segment holds — one per component that can own
     #: a timeline.
@@ -119,6 +120,47 @@ class ParametersInfo(BaseModel):
     #: Object ids of the name table and the manager every record points back to.
     table: int = 0
     manager: int = 0
+
+
+class TimelineEntry(BaseModel):
+    """One row of ``ezf3d timeline``."""
+
+    #: Position in the timeline, counting from zero.
+    index: int
+    #: Object id — creation order, which is not timeline order.
+    oid: int
+    #: The label Fusion shows, empty where it wrote none.
+    name: str = ""
+    #: Registry kind the label names.
+    kind: str = ""
+    #: Component whose id range holds the feature.
+    component: str = ""
+    #: How many objects the feature consumes.
+    inputs: int = 0
+
+
+class TimelineInfo(BaseModel):
+    """Payload row of ``ezf3d timeline`` — one per document with a design."""
+
+    document: str
+    #: Object id of the list, 0 when the design has no timeline.
+    oid: int = 0
+    entries: list[TimelineEntry] = Field(default_factory=list)
+    #: Entries Fusion left unlabelled.
+    unnamed: int = 0
+    #: Per-kind counters the registries declare — an ever-created upper bound
+    #: on the live timeline, not a census of it.
+    declared: dict[str, int] = Field(default_factory=dict)
+    #: Live count per kind, from the timeline itself.
+    census: dict[str, int] = Field(default_factory=dict)
+    #: Named features the design holds that the list does not, by kind:
+    #: deleted or superseded work, and — in an assembly — the joint and
+    #: component-creation features this list does not carry.
+    outside: dict[str, int] = Field(default_factory=dict)
+    #: Labels no registry declares, and kinds whose live count outruns the
+    #: counter — both empty in every sample.
+    unknown_labels: list[str] = Field(default_factory=list)
+    over_counter: list[str] = Field(default_factory=list)
 
 
 class AssetInfo(BaseModel):
