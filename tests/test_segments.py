@@ -96,3 +96,126 @@ def test_feature_meta_types_are_a_sorted_registry(opened_design):
         census = segment.bulk.type_names()
         for name, count in declared.items():
             assert census[name] == count, name
+
+
+def test_the_meta_chain_walks_to_its_declared_length(opened):
+    """The header says how many module states follow, and exactly that many do.
+
+    A record is ``str8 previous, str8 identity, u32 kind, str8 owner, u32 n,
+    n x u64 ids``.  Getting any field width wrong desynchronises the walk
+    immediately, so hitting the declared count on the nose is a strong check
+    on the whole shape.
+    """
+    checked = 0
+    for child in opened.documents():
+        for name, segment in child.segments.items():
+            meta = segment.meta
+            assert meta.declared_records > 0, name
+            assert len(meta.records) == meta.declared_records, name
+            checked += 1
+    assert checked, "no segments in this document"
+
+
+def test_a_meta_record_s_identity_is_its_own_and_its_group_is_shared(opened):
+    """Which is what separates the two GUIDs a record carries.
+
+    ``identity`` is unique across a segment's records -- 299 distinct across
+    Robotic_Bhujha's 299 -- while ``group`` repeats, 45 distinct over the
+    wheel's 167 with one used 22 times.  Reading them the other way round
+    would make the list look like a chain, which for the first few records it
+    convincingly does and for the whole list does not.
+    """
+    checked = 0
+    for child in opened.documents():
+        for name, segment in child.segments.items():
+            records = segment.meta.records
+            if len(records) < 5:
+                continue
+            identities = [record.identity for record in records]
+            assert len(set(identities)) == len(identities), f"{name}: an identity repeats"
+            groups = [record.group for record in records]
+            assert len(set(groups)) < len(groups), f"{name}: no group is shared"
+            checked += 1
+    assert checked, "no segment had enough records to judge"
+
+
+def test_the_meta_stream_indexes_the_bulk_stream(opened):
+    """Object id to byte offset -- and the offsets ascend with the ids.
+
+    That ordering is what makes the bulk stream addressable: consecutive
+    entries delimit each object, so a record has a known extent without any
+    decoder for its contents.
+    """
+    checked = 0
+    for child in opened.documents():
+        for name, segment in child.segments.items():
+            index = segment.meta.index
+            if not index:
+                continue
+            checked += 1
+            limit = len(segment.bulk.body)
+            ids = sorted(index)
+            offsets = [index[oid] for oid in ids]
+            assert all(offset < limit for offset in offsets), name
+            assert offsets == sorted(offsets), f"{name}: offsets do not ascend with ids"
+            assert len(set(offsets)) == len(offsets), f"{name}: two objects share an offset"
+            # Ids are issued in order and never reused, so the high-water mark
+            # sits past the largest one still present.
+            assert segment.meta.next_id > ids[-1], name
+    assert checked, "no segment in this document carries an index"
+
+
+def test_indexed_objects_do_not_split_a_string(opened):
+    """Independent corroboration that the offsets are record boundaries.
+
+    The type names are found by scanning the bulk stream for length-prefixed
+    strings, which knows nothing about the index.  If the offsets were wrong,
+    some of those strings would straddle two objects.  None do.
+    """
+    import bisect
+
+    checked = 0
+    for child in opened.documents():
+        for name, segment in child.segments.items():
+            named = segment.bulk.named_types()
+            objects = segment.objects()
+            if not named or not objects:
+                continue
+            starts = [item.offset for item in objects]
+            for offset, value in named:
+                position = bisect.bisect_right(starts, offset) - 1
+                if position < 0:
+                    # A segment's index need not begin at offset 0; the
+                    # browser's first object starts past its root id string.
+                    continue
+                end = objects[position].end
+                assert offset + 4 + len(value) <= end, f"{name}: {value!r} straddles a boundary"
+                checked += 1
+    assert checked, "no type names to place"
+
+
+def test_object_bytes_are_exactly_one_record(wheel):
+    with ezf3d.readfile(wheel) as doc:
+        segment = doc.design
+        objects = segment.objects()
+        assert len(objects) > 100
+        first = objects[0]
+        raw = segment.object_bytes(first.oid)
+    assert len(raw) == first.size
+    assert segment.object_bytes(10**9) == b""
+
+
+def test_the_meta_stream_is_read_whole_or_says_what_is_left(opened):
+    """Every byte between the index and the footer is accounted for, or counted.
+
+    Zero in the plain documents.  The ``.f3z`` members carry a further section
+    holding a wide GUID that this reader does not decode; it is reported as a
+    byte count rather than passed over.
+    """
+    for child in opened.documents():
+        for name, segment in child.segments.items():
+            meta = segment.meta
+            assert meta.unread >= 0
+            assert meta.unread < len(meta.body), name
+            if meta.schema:
+                assert set(meta.schema) == {"Application", "Server"}, name
