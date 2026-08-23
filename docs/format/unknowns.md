@@ -148,10 +148,12 @@ decoding the blobs.
 Decoded; see [graphics-cache.md](graphics-cache.md). What is still unread there is the
 attribute side — colour, visibility and transforms — and the sketch display geometry.
 
-One lead worth recording: the `.f3z` sample's cache draws **ten bodies at once**, and
-every one of its 5,292 edge polylines ends on a `point` record of one of them. If those
-bodies are modelled about their own frames, the cache holds the placement — which is
-exactly what Phase 3 needs and has no other source yet.
+One thing it does **not** offer, recorded so it is not hoped for twice: assembly
+placement. The `.f3z` sample's cache draws ten bodies at once and every one of its 5,292
+edge polylines ends on a `point` record of one of them — with no transform applied. Those
+ten bodies already share a frame in their own ASM, so the cache adds nothing about where
+they sit. Whether that holds for an assembly whose parts *are* modelled about their own
+origins is untested; the sample that behaves that way, Robotic_Bhujha, has no cache.
 
 ## Design configuration tables
 
