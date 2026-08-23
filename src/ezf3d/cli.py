@@ -18,6 +18,7 @@ from rich.table import Table
 from rich.tree import Tree
 
 from ezf3d import __version__
+from ezf3d.asm.brep import Shape
 from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
@@ -27,10 +28,20 @@ from ezf3d.inspect import body_infos, document_info
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
+from ezf3d.ogs.verify import compare
 from ezf3d.render.camera import Camera
 from ezf3d.render.png import write as png_write
 from ezf3d.render.raster import Style, ink_bounds, render_lines, render_mesh
-from ezf3d.render.scene import build_mesh, build_scene, contact_sheet
+from ezf3d.render.scene import (
+    CachedGeometry,
+    Scene,
+    build_cached,
+    build_mesh,
+    build_scene,
+    chosen_bodies,
+    contact_sheet,
+    open_cache,
+)
 from ezf3d.streams.primitives import StreamError, scan_strings
 
 app = typer.Typer(
@@ -43,6 +54,16 @@ err_console = Console(stderr=True)
 
 FileArg = Annotated[Path, typer.Argument(help="A .f3d or .f3z file.", exists=True)]
 JsonOpt = Annotated[bool, typer.Option("--json", help="Emit the JSON envelope.")]
+SourceOpt = Annotated[
+    str,
+    typer.Option(
+        "--source",
+        help="Where triangles come from: asm (tessellate), ogs (Fusion's cache), "
+        "or auto (the cache when it covers the whole body).",
+    ),
+]
+
+SOURCES = ("auto", "asm", "ogs")
 
 #: Failures that mean "this file is not what we expected", not a crash.
 READ_ERRORS = (
@@ -501,6 +522,7 @@ def render(
     shaded: Annotated[
         bool, typer.Option("--shaded", help="Tessellate and render solid surfaces.")
     ] = False,
+    source: SourceOpt = "asm",
 ) -> None:
     """Draw a wireframe of the design's edges to a PNG."""
     try:
@@ -512,9 +534,14 @@ def render(
 
     try:
         with readfile(path) as doc:
-            scene = build_scene(doc, tolerance=tolerance, body=body, chords=chords)
-            tessellation = build_mesh(doc, tolerance=tolerance, body=body) if shaded else None
-            if scene.is_empty and (tessellation is None or tessellation.mesh.is_empty):
+            cache = _resolve_source(doc, source, body, "render", path, as_json)
+            if cache is not None:
+                scene = Scene(segments=cache.segments, bodies=1, polylines=cache.edges)
+                solid = cache.mesh if shaded else None
+            else:
+                scene = build_scene(doc, tolerance=tolerance, body=body, chords=chords)
+                solid = build_mesh(doc, tolerance=tolerance, body=body).mesh if shaded else None
+            if scene.is_empty and (solid is None or solid.is_empty):
                 raise Ef3dError("nothing to draw: no evaluable geometry in this design")
             frames = max(turntable, 0)
             columns = 1 if frames <= 1 else min(frames, 3)
@@ -523,11 +550,7 @@ def render(
                 if frames > 1
                 else pixels
             )
-            framing = (
-                tessellation.mesh.vertices
-                if tessellation is not None and not tessellation.mesh.is_empty
-                else scene.points()
-            )
+            framing = solid.vertices if solid is not None and not solid.is_empty else scene.points()
             base = Camera.fit_points(
                 framing,
                 view=view,
@@ -537,9 +560,9 @@ def render(
             )
 
             def draw(camera: Camera):
-                if tessellation is None:
+                if solid is None:
                     return render_lines(scene.segments, camera)
-                return render_mesh(tessellation.mesh, camera, edges=scene.segments)
+                return render_mesh(solid, camera, edges=scene.segments)
 
             if frames > 1:
                 step = 2 * math.pi / frames
@@ -568,7 +591,8 @@ def render(
         "ink_bounds": list(ink) if ink else None,
         "unplaced": scene.unplaced,
         "shaded": shaded,
-        "triangles": len(tessellation.mesh) if tessellation is not None else 0,
+        "triangles": len(solid) if solid is not None else 0,
+        "source": source,
     }
     if as_json:
         _emit("render", path, payload, True)
@@ -634,10 +658,19 @@ def mesh(
     tolerance: Annotated[
         float, typer.Option("--tolerance", help="Chord tolerance in cm.")
     ] = DEFAULT_CHORD_TOLERANCE,
+    source: SourceOpt = "asm",
 ) -> None:
-    """Tessellate the design's faces and report the result."""
+    """Tessellate the design's faces, or read the triangles Fusion cached."""
     try:
         with readfile(path) as doc:
+            cache = _resolve_source(doc, source, body, "mesh", path, as_json)
+            if cache is not None:
+                payload = _cache_payload(cache)
+                if as_json:
+                    _emit("mesh", path, payload, True)
+                    return
+                _print_cache(cache)
+                return
             result = build_mesh(doc, tolerance=tolerance, body=body)
     except READ_ERRORS as exc:
         _fail("mesh", path, exc, as_json)
@@ -681,21 +714,29 @@ def export(
         float, typer.Option("--tolerance", help="Chord tolerance in cm.")
     ] = DEFAULT_CHORD_TOLERANCE,
     unit: Annotated[str, typer.Option("--unit", help="Output unit: mm or cm.")] = "mm",
+    source: SourceOpt = "asm",
 ) -> None:
     """Tessellate and write the mesh as STL, OBJ or glTF."""
     scale = CM_TO_MM if unit == "mm" else 1.0
+    cache: CachedGeometry | None = None
     try:
         if unit not in ("mm", "cm"):
             raise ExportError(f"unknown --unit {unit!r}; expected mm or cm")
         with readfile(path) as doc:
-            result = build_mesh(doc, tolerance=tolerance, body=body)
+            cache = _resolve_source(doc, source, body, "export", path, as_json)
+            mesh = cache.mesh if cache is not None else None
+            result = None if cache is not None else build_mesh(doc, tolerance=tolerance, body=body)
+            if mesh is None and result is not None:
+                mesh = result.mesh
             out.parent.mkdir(parents=True, exist_ok=True)
-            written = write_mesh(result.mesh, out, fmt, scale=scale, name=doc.name)
+            written = write_mesh(mesh, out, fmt, scale=scale, name=doc.name)
     except READ_ERRORS as exc:
         _fail("export", path, exc, as_json)
         return
 
-    payload = _tessellation_payload(result, tolerance)
+    payload = (
+        _cache_payload(cache) if cache is not None else _tessellation_payload(result, tolerance)
+    )
     payload.update({"out": str(out), "format": fmt, "bytes": written, "unit": unit})
     if as_json:
         _emit("export", path, payload, True)
@@ -703,12 +744,188 @@ def export(
     console.print(
         f"wrote [cyan]{out}[/] [dim]{fmt}, {_si(written)}[/] · "
         f"{payload['triangles']:,} triangles in {unit}"
+        + (" [dim]from Fusion's graphics cache[/]" if cache is not None else "")
     )
-    if result.faces_skipped:
+    if result is not None and result.faces_skipped:
         console.print(
             f"[yellow]{result.faces_skipped} faces missing[/] "
             f"[dim]— {', '.join(sorted(result.unsupported))}[/]"
         )
+
+
+def _cache_payload(cache: CachedGeometry) -> dict[str, Any]:
+    bounds = cache.mesh.bounds()
+    return {
+        "faces": cache.faces,
+        "edges": cache.edges,
+        "triangles": cache.triangles,
+        "vertices": len(cache.mesh.vertices),
+        "body": cache.body,
+        "candidate_bodies": cache.candidates,
+        "contributing_bodies": cache.contributors,
+        "corner_coverage": round(cache.corner_coverage, 6),
+        "body_faces": cache.body_faces,
+        "covers_body": cache.covers_body,
+        "watertight": cache.mesh.is_watertight,
+        "blob_gap_bytes": cache.gap,
+        "blob_overlap_bytes": cache.overlap,
+        "bounds_cm": (
+            {"min": [round(v, 6) for v in bounds[0]], "max": [round(v, 6) for v in bounds[1]]}
+            if bounds
+            else None
+        ),
+    }
+
+
+def _resolve_source(
+    doc: Document, source: str, body: str | None, command: str, path: Path, as_json: bool
+) -> CachedGeometry | None:
+    """The cached geometry to use, or ``None`` to tessellate instead.
+
+    ``auto`` uses the cache only when it covers every face of the body it
+    draws.  A partial cache is a fragment of the solid, and quietly exporting
+    a third of a body as if it were the whole one is the failure this avoids.
+    """
+    if source not in SOURCES:
+        _fail(
+            command,
+            path,
+            Ef3dError(f"unknown --source {source!r}; expected one of {SOURCES}"),
+            as_json,
+        )
+    if source == "asm":
+        return None
+    cache = build_cached(doc, body=body, identify=True)
+    if cache is None or cache.is_empty:
+        if source == "ogs":
+            _fail(command, path, Ef3dError("this design carries no graphics cache"), as_json)
+        return None
+    if source == "auto" and not cache.covers_body:
+        if not as_json:
+            held = (
+                f"{cache.faces} of {cache.body_faces} faces"
+                if cache.body_faces
+                else f"{cache.contributors} bodies at once"
+            )
+            err_console.print(
+                f"[dim]graphics cache present but holds {held}; tessellating instead[/]"
+            )
+        return None
+    return cache
+
+
+@app.command()
+def ogs(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    verify: Annotated[
+        bool,
+        typer.Option("--verify", help="Measure cached vertices against the ASM surfaces."),
+    ] = False,
+) -> None:
+    """Report the OGS graphics cache — Fusion's own tessellation of the design."""
+    try:
+        with readfile(path) as doc:
+            cache = build_cached(doc, identify=True)
+            if cache is None:
+                raise Ef3dError("this design carries no graphics cache")
+            payload = _cache_payload(cache)
+            if verify and not cache.candidates:
+                # Nothing to check against: the cache draws several bodies, so
+                # no single one owns its faces.  Comparing against all of them
+                # would be slow and would not mean anything.
+                payload["agreement"] = None
+            elif verify:
+                cached = open_cache(doc)
+                report = None
+                for item in chosen_bodies(doc, None):
+                    if item.uuid not in cache.candidates:
+                        continue
+                    candidate = compare(cached, Shape(item.model()))
+                    if report is None or candidate.matched > report[1].matched:
+                        report = (item.uuid, candidate)
+                if report is not None:
+                    payload["verified_against"] = report[0]
+                    payload["agreement"] = {
+                        "matched": report[1].matched,
+                        "unmatched": report[1].unmatched,
+                        "unevaluated": report[1].unevaluated,
+                        "by_surface": [
+                            {
+                                "surface": kind,
+                                "faces": count,
+                                "typical_cm": typical,
+                                "worst_typical_cm": worst_typical,
+                                "worst_cm": worst,
+                            }
+                            for kind, count, typical, worst_typical, worst in report[1].summary()
+                        ],
+                    }
+    except READ_ERRORS as exc:
+        _fail("ogs", path, exc, as_json)
+        return
+
+    if as_json:
+        _emit("ogs", path, payload, True)
+        return
+
+    _print_cache(cache)
+    if payload.get("agreement"):
+        _print_agreement(payload)
+    elif verify:
+        console.print(
+            "[dim]no single body owns these faces, so there is nothing to verify against[/]"
+        )
+
+
+def _print_cache(cache: CachedGeometry) -> None:
+    console.print(
+        f"[bold]{cache.triangles:,}[/] cached triangles over "
+        f"[bold]{cache.faces:,}[/] faces and {cache.edges:,} edges"
+    )
+    if cache.body:
+        state = (
+            "the whole body" if cache.covers_body else f"{cache.faces} of {cache.body_faces} faces"
+        )
+        console.print(f"[dim]draws[/] {cache.body[:8]} [dim]—[/] {state}")
+    elif cache.candidates:
+        console.print(
+            f"[yellow]several bodies match[/] [dim]{', '.join(u[:8] for u in cache.candidates)}; "
+            f"holds {cache.faces} faces against {cache.body_faces} in the largest[/]"
+        )
+    elif cache.contributors > 1:
+        console.print(
+            f"[yellow]draws an assembly[/] [dim]— corners come from "
+            f"{cache.contributors} bodies, so it belongs to no single one[/]"
+        )
+    elif cache.contributors:
+        console.print("[yellow]no body accounts for the cached corners[/]")
+    if cache.contributors:
+        console.print(f"[dim]corners that are a B-Rep vertex[/] {cache.corner_coverage:.1%}")
+    console.print(
+        f"[dim]blob read whole[/] {'yes' if not (cache.gap or cache.overlap) else 'no'} "
+        f"[dim]· welds to a closed manifold[/] {'yes' if cache.mesh.is_watertight else 'no'}"
+    )
+
+
+def _print_agreement(payload: dict[str, Any]) -> None:
+    table = Table(box=None, pad_edge=False)
+    for column in ("surface", "faces", "typical", "worst typical", "worst"):
+        table.add_column(column, justify="left" if column == "surface" else "right")
+    for row in payload["agreement"]["by_surface"]:
+        table.add_row(
+            row["surface"],
+            f"{row['faces']}",
+            f"{row['typical_cm']:.2e}",
+            f"{row['worst_typical_cm']:.2e}",
+            f"{row['worst_cm']:.2e}",
+        )
+    console.print(
+        f"\n[dim]cached vertices against {payload['verified_against'][:8]}'s surfaces, "
+        f"{payload['agreement']['matched']} faces paired, "
+        f"{payload['agreement']['unmatched']} unpaired[/]"
+    )
+    console.print(table)
 
 
 # -- version ---------------------------------------------------------------
