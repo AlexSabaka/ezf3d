@@ -293,6 +293,46 @@ the registry, which is written separately from the list: **every label names a k
 registry declares**, and **no kind appears in the timeline more often than its counter says
 was ever issued**. Both hold for all four samples.
 
+### What a feature drives
+
+The numbers a feature carries are not in its record: they are **parameters**, and a
+parameter's `role` is the name of the slot it fills — `AlongDistance` and `TaperAngle` for
+an extrude, `Radius` for a fillet, `HoleDepth` for a hole, `countU` for a pattern.
+
+Nothing links the two. A feature's `inputs` list reaches one of its parameters **4 times
+in 1,438** and reaches its profile sketch **0 times in 8**. The link is positional
+instead: ids are issued in creation order, and Fusion writes a feature's parameters
+immediately after it, so **a parameter belongs to the nearest preceding named feature**.
+
+That must run over *every* named feature-shaped object, not only the ones the timeline
+lists — restricted to the timeline the agreement falls to 85 %, because the features the
+list does not hold fall between.
+
+Positional rules need an external check, and the role supplies one: it is written into a
+different record from the kind, so their agreement is evidence. Over roles seen ten or
+more times it is **99.5–100 % per sample**:
+
+| role | kind | agreement |
+|---|---|---|
+| TaperAngle | Extrude | 99.6 % |
+| RotateAngle | Move | 98.4 % |
+| Radius, TangencyWeight | Fillet | 100 % |
+| Distance | Chamfer | 100 % |
+| Linear / Diameter Dimension-*N* | Sketch | 100 % |
+| HoleDepth, HoleDiameter, TipAngle | Hole | 100 % |
+| distance | OffsetFaces | 100 % |
+
+Two roles are genuinely shared rather than misattributed and are not scored: `countU`
+belongs to three pattern kinds, and `AlongDistance` to extrudes *and* to a work plane
+offset by a distance.
+
+**478 of 686 features carry at least one parameter.** The rest are kinds with no number to
+carry — PasteBodies, DeleteBody, SplitBody, Combine, BaseFeature.
+
+The roles also give structure away for free: Robotic_Bhujha's timeline entry #139 carries
+`AgainstDistance` and `Side2TaperAngle` beside the usual pair, which is a **two-sided
+extrude**. Nothing else in the record says so.
+
 `ezf3d timeline` also counts the named features a design holds that the list does *not* —
 2 in SUCKER, 35 in Robotic_Bhujha, 190 in the Focuser package. In the single-component
 designs those are deleted or superseded work; in Robotic_Bhujha they are its joint

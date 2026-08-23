@@ -52,7 +52,7 @@ ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
 ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
 ezf3d components <file>           # the component tree, its bodies, and its materials
 ezf3d params  <file>              # every parameter: name, role, unit, expression, value
-ezf3d timeline <file>             # the features, in the order the timeline runs them
+ezf3d timeline <file> [--inputs]  # the features in run order, and what drives each
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -76,8 +76,9 @@ with ezf3d.readfile("Design.f3d") as doc:
     design.components[0].name  # 'SUCKER v2'  -> and .bodies, .features
     params = ezf3d.model.read_parameters(doc.design)
     params.by_name()["d20"].expression  # '14 mm'  -> and .role, .unit, .value, .display
-    timeline = ezf3d.model.read_timeline(doc.design)
+    timeline = ezf3d.model.read_timeline(doc.design, params)
     [f.kind for f in timeline][:3]  # ['CylinderPrimitive', 'CylinderPrimitive', 'Sketch']
+    timeline.features[3].role("AlongDistance").expression  # '-50 mm'
     ezf3d.model.read_assignments(doc.design)[0].appearance  # 'PrismMaterial-018'
 ```
 
@@ -123,7 +124,8 @@ Full notes live in [`docs/format/`](docs/format/).
   four samples with their roles, units, expressions and values; and `ezf3d timeline` reads
   the features in the order Fusion runs them — an order that is *not* creation order.
   `ezf3d components --materials` adds each component's material, checked against the
-  `.protein` package that declares it.
+  `.protein` package that declares it, and `ezf3d timeline --inputs` says what each feature
+  drives — 478 of 686 features across the samples carry at least one parameter.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
@@ -136,7 +138,7 @@ happens through the transpile path.
 
 ```bash
 uv run pytest                  # everything, ~11 min over 100 MB of sample CAD
-uv run pytest -m "not slow"    # the inner loop, ~3.5 min
+uv run pytest -m "not slow"    # the inner loop, ~4 min (±20 s run to run)
 uv run ruff check . && uv run ruff format --check .
 ```
 

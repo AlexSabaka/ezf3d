@@ -83,6 +83,36 @@ and not a merge key. The `<u32 k> <f64> <u32 k>` triples in feature and item rec
 like keyed attributes — the values are small fractions that behave like recompute times —
 and are not read either.
 
+### What a feature *does*, as opposed to by how much
+
+**Status: unresolved.** The numbers are read (see
+[neutron-streams.md](neutron-streams.md#what-a-feature-drives)); the choices are not. For
+an extrude that means the operation — join, cut, intersect, new body — the extent type, the
+direction, and which sketch supplies the profile.
+
+None of it is tagged. A census of `str8` keys inside every timeline feature and its item
+turns up only `edge_recipe_data`, `body_recipe_data`, `face_recipe_data`, `EntityGenesis`
+and `crv_primary_id`, which are entity references, plus `DcFeatureOperationIdFlag` — which
+appears on `Combine` only, 19 times, and whose value is a tracked-entity id (385, 386)
+rather than an operation.
+
+**Records of one kind do not align between documents**, which is the trap here. Aligning
+SUCKER's eight extrudes backwards from their guid gives 39 candidate fields, and one — an
+`f64` at guid − 128 — reads as exactly `+1.0`, `−1.0` and `0.0`, which looks decisively like
+a direction. Run over all 214 extrudes of the four samples it is noise (`-3.1e+231`,
+`9.4e-322`). It was an alignment coincidence inside one document, and it is recorded here
+because it is what a plausible-and-wrong finding looks like. Record size does not classify
+either: SUCKER's extrudes come in four sizes and Robotic_Bhujha's in twenty-five, tracking
+how much entity-reference data each carries.
+
+**What would crack it:** ground truth from Fusion for one design — which extrudes are cut
+and which are join — to select among the candidates within that document, and then a second
+document to show the field survives. Differential designs that differ in one setting would
+do it faster.
+
+**What it blocks:** Phase 4. Of the five things needed to regenerate an extrude — profile,
+distance, taper, extent, operation — two are readable.
+
 ## Spline surface identification
 
 **Status: unresolved, and gated off because of it.**
