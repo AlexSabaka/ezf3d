@@ -379,6 +379,55 @@ Two of the package's members declare no table and hold no parameter-like string 
 Both are documents assembled out of imported bodies, so "none" is the honest answer
 rather than a failed search.
 
+### Materials
+
+The design stream stores *assignments*, not materials. The materials themselves live in
+the asset's `.protein` package — `ProteinAssets.BlobParts/*.protein`, a nested ZIP of
+Autodesk Protein assets.
+
+An assignment is eleven bytes and four wide strings:
+
+```
+0x01 0x01 <u64 0> 0x00     a flagged reference
+wstr asset       the protein asset id, "0C7D1000-E2AC-D0B5-40B5-F6DFEEDF746D"
+wstr library     the library it came from, or "" when the next slot names it
+wstr material    "i4 Custom Materials|PLA" — written only for a user library
+wstr appearance  "PrismMaterial-018"
+```
+
+Those eleven bytes read two ways and the samples cannot separate them: a flag byte and a
+reference to object 0 (`AssetSettings`), or a reference to object 1
+(`ProteinAssetManager`) and two spare bytes. All six documents number those roots 0 and 1,
+so both readings hold everywhere; ezf3d matches the signature literally and claims nothing
+about which object it names. The anchor also matches runs of zero padding — SUCKER's
+stream holds 22 of them and 13 assignments — so a run counts only when all four slots read
+and the first is an asset id.
+
+**Only components and design bodies carry one**, and the holders partition exactly:
+
+| design | components | bodies under `BodiesRoot` | anything else |
+|---|---|---|---|
+| SUCKER | 1 | 12 | 0 |
+| Robotic_Bhujha | 11 | 33 | 0 |
+| Focuser Mk1 (3 documents) | 7 | 138 | 0 |
+
+The wheel is the one exception, and only because it has no `BodiesRoot` at all; its two
+non-component holders are the base feature's body records.
+
+The package's `AssetData/AssetTableOfContents.bin` is a flat run of `str8` values — the
+same length-prefixed encoding the Neutron streams use — pairing each asset id with a
+category: `physicalmaterial`, `materialappearance`, `Thermal`, `Structural`. That gives
+two checks across different members of the archive, and both hold for all six documents:
+**every asset an assignment names is one the package declares**, and every one is a
+`physicalmaterial` — the appearance travels as a name in the fourth slot rather than as an
+id. **Every appearance name the design writes appears in the package too.**
+
+What is *not* read is the readable name. `PrismMaterial-018` is a Prism appearance id, not
+"Steel"; the display name sits in the package's `InstanceProperties.bin` and
+`DefinitionIteratorProperties.bin`, which need the schema documents beside them to decode.
+A user-library material is the exception — Fusion writes `i4 Custom Materials|PLA` into the
+design itself.
+
 Decoding the *contents* of a bulk object — sketch entities and constraints, the ordered
 feature timeline, feature payloads — still needs a schema-versioned
 decoder per subsystem revision. What the index removes is the need to find them: each

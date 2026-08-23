@@ -179,16 +179,40 @@ timeline almost certainly addresses individual faces and edges through them.
 **Unlocks:** resolving a feature reference ("fillet these edges") to actual topology —
 required for faithful transpilation in Phase 4.
 
+### Material assignments
+
+Decoded; see [neutron-streams.md](neutron-streams.md#materials). Which component and which
+body is assigned which protein asset, checked both ways against the package that declares
+it.
+
+The **readable name** is not read. `PrismMaterial-018` is an appearance id; the material's
+display name ("Steel", "Steel, mill finish") sits in the package's `InstanceProperties.bin`
+and `DefinitionIteratorProperties.bin`, whose records are keyed by the schema documents
+shipped beside them. Reading them properly means decoding the Protein property format, and
+the strings are there in order but only positionally — which is a guess, not a reading. A
+user-library material is the exception: Fusion writes `i4 Custom Materials|PLA` into the
+design stream itself.
+
+The second and third slots of an assignment are inferred from how they trade places: an
+Autodesk-library material fills the library guid and leaves the name empty, a user-library
+one does the reverse. Nothing in the file labels either.
+
 ## Protein materials
 
-**Status:** container identified, contents not read.
+**Status:** container read, property streams not.
 
-`*.protein` files are nested ZIPs holding `<GUID>/AssetData/*.bin`.
+`*.protein` files are nested ZIPs holding `<GUID>/AssetData/*.bin` beside the schema
+documents that describe them. `AssetTableOfContents.bin` is decoded — a flat run of `str8`
+values pairing each asset id with a category — and that is what lets ezf3d say a design's
+assignment names a `physicalmaterial`. `InstanceProperties.bin` and
+`DefinitionIteratorProperties.bin` are not: their values are keyed by the schemas, and the
+readable strings inside them ("Steel", "Steel, mill finish", "Metal/Steel") can be listed
+but not attributed without decoding the property format.
 
 **Unlocks:** real material names, colours and physical properties, for rendering and for
-mass properties in Phase 5. The design stream already names the material in plain text
-(`i4 Custom Materials|PLA`, `PrismMaterial-018`), so a coarse answer is available without
-decoding the blobs.
+mass properties in Phase 5. The design stream already names a user-library material in
+plain text (`i4 Custom Materials|PLA`) and always names the appearance
+(`PrismMaterial-018`), so a coarse answer is available without decoding the blobs.
 
 ## OGS graphics cache
 
