@@ -84,6 +84,42 @@ KIND_ALIASES = {
 }
 
 
+#: Bytes between a record's revision string and the extrude settings flag:
+#: a ``u64``, a ``u32``, a spare byte, a ``u32`` and three spare.
+SETTINGS_GAP = 20
+
+#: What an extrude does with the material it sweeps.  ``Join``, ``Cut`` and
+#: ``NewBody`` are pinned by a Fusion readout of SUCKER's eight extrudes; 3 is
+#: never seen in the samples and is left unnamed rather than guessed at.
+EXTRUDE_OPERATIONS = {1: "Join", 2: "Cut", 4: "NewBody"}
+
+#: Which way it goes.  ``OneSide`` and ``Symmetric`` come from the same
+#: readout.  ``TwoSides`` is corroborated instead by the parameters: the one
+#: record in the samples carrying a 2 is also the only extrude whose roles
+#: include ``AgainstDistance`` and ``Side2TaperAngle``, and those two facts are
+#: written into different parts of the file.
+EXTRUDE_DIRECTIONS = {1: "OneSide", 2: "TwoSides", 3: "Symmetric"}
+
+#: Codes accepted while looking for the settings block.  Anything outside them
+#: means the anchor landed on the wrong revision string, which is what keeps a
+#: loft's and a work plane's records from reading as extrude settings.
+_OPERATION_CODES = frozenset({1, 2, 3, 4})
+_DIRECTION_CODES = frozenset({1, 2, 3})
+
+
+@dataclass(frozen=True, slots=True)
+class Extrude:
+    """What an extrude does, as opposed to by how much."""
+
+    #: ``Join``, ``Cut``, ``NewBody``, or ``""`` for a code with no name yet.
+    operation: str
+    #: ``OneSide``, ``TwoSides`` or ``Symmetric``.
+    direction: str
+    #: The three ``u32`` as read.  The third is 2 for all but one record in the
+    #: samples and is not understood, so it is carried rather than interpreted.
+    codes: tuple[int, int, int]
+
+
 @dataclass(frozen=True, slots=True)
 class Feature:
     """One entry of the timeline."""
@@ -105,6 +141,9 @@ class Feature:
     #: :func:`read_timeline` is given the design's parameters; the feature
     #: record itself does not name them.
     parameters: tuple[Parameter, ...] = ()
+    #: Operation and direction, for an extrude.  ``None`` for every other kind:
+    #: no other kind's record reads as one at this offset.
+    extrude: Extrude | None = None
 
     @property
     def is_named(self) -> bool:
@@ -177,6 +216,34 @@ def kind_of(name: str, declared: Counter[str] | dict[str, int]) -> str:
         if candidate and candidate in declared:
             return candidate
     return ""
+
+
+def read_extrude(body: bytes, item: BulkObject) -> Extrude | None:
+    """An extrude's operation and direction, or ``None``.
+
+    The settings sit a fixed distance past the record's revision string, and a
+    record can carry several of those -- two of Robotic_Bhujha's extrudes nest
+    eleven -- so every one is tried and the block is accepted only when its
+    codes are ones an extrude uses.  That range check is the whole of the
+    safety: without it a loft and four work planes read as extrudes.
+
+    It found the block in **214 of 214** extrudes across the four samples and
+    in no record of any other kind.
+    """
+    for found in scan_strings(body, start=item.offset, end=item.end, min_len=3):
+        if found.kind != "str8" or not found.value.isdigit():
+            continue
+        at = found.end + SETTINGS_GAP
+        if at + 13 > item.end or body[at] != _REFERENCE:
+            continue
+        codes = struct.unpack_from("<3I", body, at + 1)
+        if codes[0] in _OPERATION_CODES and codes[1] in _DIRECTION_CODES:
+            return Extrude(
+                operation=EXTRUDE_OPERATIONS.get(codes[0], ""),
+                direction=EXTRUDE_DIRECTIONS[codes[1]],
+                codes=codes,
+            )
+    return None
 
 
 def _wstr_at(body: bytes, pos: int, limit: int) -> tuple[str, int] | None:
@@ -258,6 +325,7 @@ def read_timeline(segment: Segment, parameters: Iterable[Parameter] | None = Non
         return Timeline(declared=declared)
 
     position = {entry.oid: index for index, entry in enumerate(items)}
+    by_id = {entry.oid: entry for entry in items}
     features: dict[int, tuple[str, tuple[int, ...]]] = {}
     for entry in items:
         found = read_feature(body, entry)
@@ -287,6 +355,11 @@ def read_timeline(segment: Segment, parameters: Iterable[Parameter] | None = Non
                 item=list_items[index],
                 inputs=features[owner][1],
                 parameters=owned.get(owner, ()),
+                extrude=(
+                    read_extrude(body, by_id[owner])
+                    if kind_of(features[owner][0], declared) == "ExtrudeFeature"
+                    else None
+                ),
             )
             for index, owner in enumerate(owners)
         ],
