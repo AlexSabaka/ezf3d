@@ -68,6 +68,14 @@ class ComponentInfo(BaseModel):
     bodies: list[str] = Field(default_factory=list)
     #: Feature kinds its own registry declares — what it *can* contain.
     declared_features: list[str] = Field(default_factory=list)
+    #: ``library|material`` where the design names it, else the protein asset
+    #: id it is assigned.  The readable name of an Autodesk-library material
+    #: lives inside the ``.protein`` package and is not read.
+    material: str = ""
+    #: Appearance name, e.g. ``PrismMaterial-018``.
+    appearance: str = ""
+    #: Bodies under this component that carry their own assignment.
+    body_materials: int = 0
 
 
 class DesignInfo(BaseModel):
@@ -80,6 +88,13 @@ class DesignInfo(BaseModel):
     #: Bodies the graph names, against those in ``Breps.BlobParts``.
     bodies_named: int = 0
     bodies_on_disk: int = 0
+    #: Material assignments in the design — one per component, one per body.
+    assignments: int = 0
+    #: Protein asset id to the category the ``.protein`` package gives it.
+    material_assets: dict[str, str] = Field(default_factory=dict)
+    #: Assets an assignment names that the package does not declare — empty
+    #: in every sample, and a real check because the two are different files.
+    undeclared_assets: list[str] = Field(default_factory=list)
 
 
 class ParameterInfo(BaseModel):

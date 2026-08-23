@@ -14,6 +14,7 @@ from ezf3d.asm.header import AsmError, read_header
 from ezf3d.asm.topology import KERNEL_UNIT
 from ezf3d.model.design import read_design
 from ezf3d.model.document import Asset, Body, Document
+from ezf3d.model.materials import Materials, read_assignments
 from ezf3d.model.parameters import read_parameters
 from ezf3d.model.report import (
     AssetInfo,
@@ -47,6 +48,13 @@ def design_infos(document: Document) -> list[DesignInfo]:
             continue
         design = read_design(segment)
         on_disk = {f"BREP.{body.uuid}.{body.suffix}" for body in child.bodies}
+        materials = read_materials(child)
+        assigned = materials.by_object()
+        owned: Counter[int] = Counter()
+        for assignment in materials:
+            owner = design.owner(assignment.oid)
+            if owner is not None and owner.oid != assignment.oid:
+                owned[owner.oid] += 1
         rows.append(
             DesignInfo(
                 document=child.name,
@@ -59,11 +67,19 @@ def design_infos(document: Document) -> list[DesignInfo]:
                         named=component.is_named,
                         bodies=list(component.bodies),
                         declared_features=sorted(component.features),
+                        material=_material_name(assigned.get(component.oid)),
+                        appearance=(
+                            assigned[component.oid].appearance if component.oid in assigned else ""
+                        ),
+                        body_materials=owned.get(component.oid, 0),
                     )
                     for component in design.components
                 ],
                 bodies_named=len(design.bodies),
                 bodies_on_disk=len(on_disk),
+                assignments=len(materials),
+                material_assets=dict(sorted(materials.assets().items())),
+                undeclared_assets=list(materials.check()),
             )
         )
     return rows
@@ -112,6 +128,25 @@ def parameter_infos(document: Document) -> list[ParametersInfo]:
             )
         )
     return rows
+
+
+def read_materials(child: Document) -> Materials:
+    """A document's material assignments, with the catalogue its packages declare."""
+    catalogue: dict[str, str] = {}
+    for asset in child.assets.values():
+        catalogue.update(asset.protein_catalogue())
+    segment = child.design
+    return Materials(
+        assignments=read_assignments(segment) if segment is not None else [],
+        catalogue=catalogue,
+    )
+
+
+def _material_name(assignment) -> str:
+    """What to show for a material: the design's own name, else the asset id."""
+    if assignment is None:
+        return ""
+    return assignment.material or assignment.asset
 
 
 def _component_name(design, oid: int) -> str:

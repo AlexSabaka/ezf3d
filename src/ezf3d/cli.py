@@ -937,6 +937,9 @@ def components(
     features: Annotated[
         bool, typer.Option("--features", help="List each component's declared feature kinds.")
     ] = False,
+    materials: Annotated[
+        bool, typer.Option("--materials", help="Show each component's material and appearance.")
+    ] = False,
 ) -> None:
     """The design's component tree, and which bodies each component owns."""
     try:
@@ -958,13 +961,16 @@ def components(
             f"[bold]{row.document}[/] [dim]— {len(row.components)} components, "
             f"{row.objects:,} design objects[/]"
         )
-        table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
-        for column, justify in (
+        columns: list[tuple[str, str]] = [
             ("component", "left"),
             ("id", "right"),
             ("bodies", "right"),
             ("declares", "left"),
-        ):
+        ]
+        if materials:
+            columns += [("material", "left"), ("appearance", "left"), ("own", "right")]
+        table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+        for column, justify in columns:
             table.add_column(column, justify=justify, overflow="fold")
         for component in row.components:
             kinds = len(component.declared_features)
@@ -974,15 +980,33 @@ def components(
                 else (f"{kinds} kinds" if kinds else "—")
             )
             label = component.name if component.named else f"[dim]{component.name[:8]}…[/]"
-            table.add_row(label, str(component.oid), str(len(component.bodies)), shown)
+            cells = [label, str(component.oid), str(len(component.bodies)), shown]
+            if materials:
+                cells += [
+                    _material_cell(component.material),
+                    component.appearance or "[dim]—[/]",
+                    str(component.body_materials),
+                ]
+            table.add_row(*cells)
         console.print(table)
         # The graph names its bodies by blob filename, so this is a real check
         # rather than a restatement: the two counts come from different files.
         mark = "[green]" if row.bodies_named == row.bodies_on_disk else "[yellow]"
         console.print(
             f"{mark}{row.bodies_named}[/] bodies named by the graph, "
-            f"{row.bodies_on_disk} in Breps.BlobParts\n"
+            f"{row.bodies_on_disk} in Breps.BlobParts"
         )
+        if row.assignments:
+            # The ids come from the design stream and the categories from the
+            # nested .protein package, so their agreement is a real check.
+            mark = "[green]" if not row.undeclared_assets else "[yellow]"
+            console.print(
+                f"{row.assignments} material assignments over "
+                f"{len(row.material_assets)} assets, {mark}"
+                f"{len(row.material_assets) - len(row.undeclared_assets)}[/] of them "
+                f"declared by the .protein package"
+            )
+        console.print()
 
 
 @app.command()
@@ -1150,6 +1174,13 @@ def timeline(
             )
             console.print(f"[dim]{loose} named features sit outside the list — {top}[/]")
         console.print()
+
+
+def _material_cell(material: str) -> str:
+    """A material reads as a guid when only the ``.protein`` package names it."""
+    if not material:
+        return "[dim]—[/]"
+    return material if "|" in material else f"[dim]{material[:8]}…[/]"
 
 
 def _print_kinds(row: Any) -> None:
