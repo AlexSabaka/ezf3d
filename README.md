@@ -52,7 +52,7 @@ ezf3d export  <file> --out <stl>  # STL, OBJ, glTF, GLB
 ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees with the B-Rep
 ezf3d components <file>           # the component tree, its bodies, and its materials
 ezf3d params  <file>              # every parameter: name, role, unit, expression, value
-ezf3d timeline <file> [--inputs]  # the features in run order, and what drives each
+ezf3d timeline <file> [--inputs]  # the features in run order, what each does and drives
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -79,6 +79,7 @@ with ezf3d.readfile("Design.f3d") as doc:
     timeline = ezf3d.model.read_timeline(doc.design, params)
     [f.kind for f in timeline][:3]  # ['CylinderPrimitive', 'CylinderPrimitive', 'Sketch']
     timeline.features[3].role("AlongDistance").expression  # '-50 mm'
+    timeline.features[3].extrude.operation  # 'Cut'  -> and .direction
     ezf3d.model.read_assignments(doc.design)[0].appearance  # 'PrismMaterial-018'
 ```
 
@@ -125,7 +126,8 @@ Full notes live in [`docs/format/`](docs/format/).
   the features in the order Fusion runs them — an order that is *not* creation order.
   `ezf3d components --materials` adds each component's material, checked against the
   `.protein` package that declares it, and `ezf3d timeline --inputs` says what each feature
-  drives — 478 of 686 features across the samples carry at least one parameter.
+  drives — 478 of 686 features across the samples carry at least one parameter, and every
+  one of 214 extrudes says whether it joins, cuts or makes a body.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
   regeneration, verified by geometric diff against the original bodies.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`

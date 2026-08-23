@@ -333,6 +333,40 @@ The roles also give structure away for free: Robotic_Bhujha's timeline entry #13
 `AgainstDistance` and `Side2TaperAngle` beside the usual pair, which is a **two-sided
 extrude**. Nothing else in the record says so.
 
+### What an extrude does
+
+The numbers are parameters; the *choices* are three `u32` in the record itself, a fixed 20
+bytes past its revision string behind a `0x01` flag:
+
+```
+str8 revision
+u64, u32, spare, u32, three spare        20 bytes
+0x01
+u32 operation    1 Join · 2 Cut · 4 NewBody
+u32 direction    1 OneSide · 2 TwoSides · 3 Symmetric
+u32 ?            2 everywhere but one record — not understood
+```
+
+A record can carry several revision strings — two of Robotic_Bhujha's extrudes nest eleven
+— so every one is tried and the block is accepted only when the codes are ones an extrude
+uses. That range check is the whole of the safety: without it a loft and four work planes
+read as extrude settings. With it the block is found in **214 of 214 extrudes** across the
+four samples and in **no record of any other kind**.
+
+`Join`, `Cut`, `NewBody`, `OneSide` and `Symmetric` are pinned by a Fusion readout of
+SUCKER's eight extrudes, which the reader reproduces 8 for 8. Code 3 for the operation is
+never seen in the samples and is deliberately left unnamed.
+
+`TwoSides` has no readout of its own and is corroborated differently, which is stronger:
+the single record in the samples carrying a 2 is also the only extrude whose parameter
+roles include `AgainstDistance` and `Side2TaperAngle`. Direction is read from the feature's
+own header and the roles come from separate parameter objects attributed by position, so
+the two agreeing is not a restatement.
+
+Nothing similar has been found for the other kinds, and the profile — which sketch an
+extrude consumes — is still unreachable; see
+[unknowns.md](unknowns.md#what-a-feature-does-as-opposed-to-by-how-much).
+
 `ezf3d timeline` also counts the named features a design holds that the list does *not* —
 2 in SUCKER, 35 in Robotic_Bhujha, 190 in the Focuser package. In the single-component
 designs those are deleted or superseded work; in Robotic_Bhujha they are its joint

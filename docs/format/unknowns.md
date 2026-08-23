@@ -85,7 +85,12 @@ and are not read either.
 
 ### What a feature *does*, as opposed to by how much
 
-**Status: unresolved.** The numbers are read (see
+**Status: solved for extrudes, open for everything else.** An extrude's operation and
+direction are decoded and checked against a Fusion readout — see
+[neutron-streams.md](neutron-streams.md#what-an-extrude-does). What follows is what is
+still open, and the record of how the first attempt went wrong.
+
+The numbers are read (see
 [neutron-streams.md](neutron-streams.md#what-a-feature-drives)); the choices are not. For
 an extrude that means the operation — join, cut, intersect, new body — the extent type, the
 direction, and which sketch supplies the profile.
@@ -105,13 +110,22 @@ because it is what a plausible-and-wrong finding looks like. Record size does no
 either: SUCKER's extrudes come in four sizes and Robotic_Bhujha's in twenty-five, tracking
 how much entity-reference data each carries.
 
-**What would crack it:** ground truth from Fusion for one design — which extrudes are cut
-and which are join — to select among the candidates within that document, and then a second
-document to show the field survives. Differential designs that differ in one setting would
-do it faster.
+**How the extrude case was cracked**, since the same method is what the remaining kinds
+need: a Fusion readout of one design's eight extrudes named three groups; aligning the
+records inside that one document turned up exactly two byte columns constant within each
+group; and reading the bytes around them showed a `0x01` flag and three `u32` rather than a
+lone byte. The first alignment — a fixed distance back from the guid — was *wrong*, and
+looked right for seven of eight records; the record that broke it was the one with a
+different number of inputs. Anchoring on the revision string instead fixed it and took the
+reader from 7/8 to 214/214.
+
+**What is still open:** the same block has not been found on any other kind, and Fusion
+gives fillets, chamfers, revolves and combines operations too. The **profile** — which
+sketch an extrude consumes — is unreachable from anything: the feature's input list does
+not name it.
 
 **What it blocks:** Phase 4. Of the five things needed to regenerate an extrude — profile,
-distance, taper, extent, operation — two are readable.
+distance, taper, direction, operation — four are now readable and the profile is not.
 
 ## Spline surface identification
 
