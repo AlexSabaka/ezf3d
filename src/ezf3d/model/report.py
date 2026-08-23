@@ -35,9 +35,14 @@ class SegmentInfo(BaseModel):
     meta_size: int
     bulk_size: int
     is_design: bool = False
-    #: Occurrences of each timeline meta-type name in the payload.  An
-    #: indicator of which feature kinds the design uses, not an exact count.
-    feature_types: dict[str, int] = Field(default_factory=dict)
+    #: Timeline feature kinds this segment's registries declare, sorted.  A
+    #: list rather than a count on purpose: the stream declares each kind once
+    #: per registry, so a number here would describe the dictionary and not
+    #: the design.
+    declared_features: list[str] = Field(default_factory=list)
+    #: How many registries the segment holds — one per component that can own
+    #: a timeline.
+    feature_registries: int = 0
 
 
 class AssetInfo(BaseModel):

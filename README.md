@@ -63,7 +63,7 @@ import ezf3d
 
 with ezf3d.readfile("Design.f3d") as doc:
     doc.manifest.doc_type  # 'Fusion Document'
-    doc.design.bulk.feature_types()  # Counter({'ExtrudeFeature': 9, 'Sketch': 8, ...})
+    doc.design.bulk.declared_feature_types()  # {'ExtrudeFeature', 'Sketch', 'LoftFeature', ...}
     body = doc.bodies[0]  # nothing parsed yet - bodies load lazily
     body.model().header.kernel_release  # '232.4.0.65535'
     body.census().faces  # 2006

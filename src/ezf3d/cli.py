@@ -151,12 +151,14 @@ def _render_info(report: Any, depth: int = 0) -> None:
             box=None,
             pad_edge=False,
         )
-        for column in ("segment", "type", "ver", "meta", "bulk", "timeline"):
+        for column in ("segment", "type", "ver", "meta", "bulk", "declares"):
             table.add_column(column, overflow="fold")
         for segment in asset.segments:
-            features = ", ".join(f"{k}×{v}" for k, v in list(segment.feature_types.items())[:6])
-            if len(segment.feature_types) > 6:
-                features += f", +{len(segment.feature_types) - 6} more"
+            # Kinds the registries allow, not a tally of features: see
+            # BulkStream.feature_registries.
+            features = ", ".join(segment.declared_features[:6])
+            if len(segment.declared_features) > 6:
+                features += f", +{len(segment.declared_features) - 6} more"
             table.add_row(
                 segment.name,
                 segment.type,

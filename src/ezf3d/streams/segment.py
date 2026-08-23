@@ -10,11 +10,17 @@ browser tree, the assembly-context tree.  Each is stored as two files:
 ``BulkStream.dat``
     The payload: a typed object graph, **uncompressed**, whose records carry
     readable meta-type names (``DcExtrudeFeatureMetaType``, ``SketchesRoot``,
-    ...).  Those names are what make the design timeline recoverable.
+    ...).
 
-Phase 1 decodes both headers and censuses the bulk stream's type names.  The
-per-record bodies need a schema-versioned decoder and land in Phase 3; until
-then :attr:`Segment.body` keeps the undecoded bytes reachable.
+**Those names are a dictionary, not a timeline.**  Fusion writes each kind once,
+sorted by name, and the objects index into that — so a design that declares
+``DcExtrudeFeatureMetaType`` has *some* number of extrudes, and the stream does
+not say how many at that point.  Counting declarations and calling the result a
+feature census is the mistake this module used to make; see
+:meth:`BulkStream.feature_registries`.
+
+Headers are decoded here.  The per-record bodies need a schema-versioned
+decoder; until then :attr:`Segment.body` keeps the undecoded bytes reachable.
 """
 
 from __future__ import annotations
@@ -33,10 +39,22 @@ META_COOKIE = 1234
 _VERSION_BLOCK_WORDS = (4, 2, 6)
 
 #: Type names Fusion uses in the bulk stream.  ``Dc*MetaType`` are timeline
-#: features and sketches; ``*Root`` are the container objects that own them.
-TYPE_NAME_RE = re.compile(rb"[A-Za-z][A-Za-z0-9_]{3,60}(?:MetaType|Root|Manager|Attributes)")
+#: features and sketches, ``*Root`` are the containers that own them, and
+#: ``IntrinsicMetaType*`` declares a scalar type such as ``uint64``.
+#:
+#: Matched against **decoded strings**, not raw bytes, and matched whole.  Run
+#: over raw bytes it truncates: every one of SUCKER's 1,118 hits for
+#: ``IntrinsicMetaType`` is really ``IntrinsicMetaTypeuint64``, and reporting
+#: the prefix turned a scalar-type declaration into a phantom timeline feature.
+#: The trailing ``[A-Za-z0-9_]*`` is what keeps those names whole.
+TYPE_NAME_RE = re.compile(
+    r"[A-Za-z][A-Za-z0-9_]{3,60}(?:MetaType|Root|Manager|Attributes)[A-Za-z0-9_]*"
+)
 
-#: Meta-type names that denote a timeline feature rather than a container.
+#: Prefix Fusion gives a timeline feature's meta-type.  ``PassiveRefMetaType``,
+#: ``StrongRefMetaType`` and the intrinsics also end in ``MetaType`` and are not
+#: features, so the prefix is what selects rather than the suffix.
+FEATURE_PREFIX = "Dc"
 FEATURE_SUFFIX = "MetaType"
 
 #: How the design graph names a B-Rep body: by its blob filename.  Current
@@ -79,19 +97,67 @@ class BulkStream:
     body_offset: int = 0
     body: bytes = b""
 
-    def type_names(self) -> Counter[str]:
-        """Census of meta-type / root names present in the payload."""
-        return Counter(m.decode("ascii") for m in TYPE_NAME_RE.findall(self.body))
+    def named_types(self) -> list[tuple[int, str]]:
+        """``(offset, name)`` for every type name in the payload, in file order.
 
-    def feature_types(self) -> Counter[str]:
-        """Just the timeline meta-types, ``Dc``-prefix and suffix stripped."""
-        counts: Counter[str] = Counter()
-        for name, n in self.type_names().items():
-            if not name.endswith(FEATURE_SUFFIX):
+        Anchored on :func:`scan_strings`, so every entry is a real
+        length-prefixed string at the offset given rather than a byte sequence
+        that happens to spell one.
+        """
+        return [
+            (found.offset, found.value)
+            for found in scan_strings(self.body, min_len=4)
+            if TYPE_NAME_RE.fullmatch(found.value)
+        ]
+
+    def type_names(self) -> Counter[str]:
+        """Census of the type names the payload declares."""
+        return Counter(name for _, name in self.named_types())
+
+    def feature_registries(self) -> list[list[str]]:
+        """The feature dictionaries, in file order, each one sorted by name.
+
+        Fusion writes the timeline's meta-types as a registry — one entry per
+        kind, alphabetical, that the objects index into.  A design can hold
+        several: Robotic_Bhujha has eleven, of 2 to 14 entries each.
+
+        Two measurements say a *count* of these names means nothing.  No
+        registry repeats a name, and every name's total across the stream
+        equals the number of registries that declare it — so Robotic_Bhujha's
+        nine ``DcExtrudeFeatureMetaType`` are nine registries that each allow
+        an extrude, not nine extrudes.  That number is the one this project's
+        own README used to advertise as a feature census.
+        """
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for _, name in self.named_types():
+            if is_feature_type(name):
+                current.append(name)
                 continue
-            short = name[: -len(FEATURE_SUFFIX)]
-            counts[short.removeprefix("Dc")] = n
-        return counts
+            if current:
+                blocks.append(current)
+                current = []
+        if current:
+            blocks.append(current)
+        return blocks
+
+    def declared_feature_types(self) -> set[str]:
+        """The timeline feature kinds this design declares, prefix and suffix stripped.
+
+        A **set**, not a count: the stream declares each kind once, so there is
+        no number here to report.  How many extrudes a design actually has is
+        the timeline's business, not the registry's.
+        """
+        return {
+            name[len(FEATURE_PREFIX) : -len(FEATURE_SUFFIX)]
+            for _, name in self.named_types()
+            if is_feature_type(name)
+        }
+
+
+def is_feature_type(name: str) -> bool:
+    """True for a timeline feature's meta-type, e.g. ``DcExtrudeFeatureMetaType``."""
+    return name.startswith(FEATURE_PREFIX) and name.endswith(FEATURE_SUFFIX)
 
 
 @dataclass(slots=True)
