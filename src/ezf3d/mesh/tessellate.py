@@ -63,6 +63,15 @@ _ON_SURFACE = 1e-4
 #: another face is centimetres away, not microns; a handful finds it.
 _RING_SAMPLE = 8
 
+#: Relative slack allowed between the area a face's loops enclose and the
+#: area its triangles cover.  Ear clipping is exact in principle, so this only
+#: absorbs floating-point summation over a few hundred triangles.
+_AREA_TOLERANCE = 1e-9
+
+#: Parameter-space distance below which two outline vertices are the same
+#: point.  Bridging a hole deliberately repeats two of them.
+_SAME = 1e-12
+
 #: A face whose triangles stray this far past the tolerance is reported rather
 #: than meshed.  Marginal overshoot is fine; a fan across a curved face is not.
 _REJECT_FACTOR = 4.0
@@ -202,8 +211,29 @@ def _point_in_triangle(p, a, b, c) -> bool:
     return not (has_neg and has_pos)
 
 
+def _triangle_area(uv: np.ndarray, a: int, b: int, c: int) -> float:
+    """Signed area of one triangle of an outline, in parameter space."""
+    first = uv[b] - uv[a]
+    second = uv[c] - uv[a]
+    return 0.5 * float(first[0] * second[1] - first[1] * second[0])
+
+
+def _coincides(point: np.ndarray, *corners: np.ndarray) -> bool:
+    """True when *point* is one of *corners*, wherever it sits in the ring."""
+    return any(abs(point[0] - c[0]) <= _SAME and abs(point[1] - c[1]) <= _SAME for c in corners)
+
+
 def ear_clip(uv: np.ndarray) -> list[tuple[int, int, int]]:
-    """Triangulate a simple polygon given counter-clockwise in UV."""
+    """Triangulate a simple polygon given counter-clockwise in UV.
+
+    Splicing a hole into its outer loop walks the cut twice, so the polygon
+    genuinely holds two vertices at the bridge and two at the hole's entry.
+    A containment test that goes by index alone finds those duplicates sitting
+    on every candidate ear and rejects all of them, and the clipper stalls and
+    falls back to a fan — which is how a handwheel came to be triangulated as
+    a solid disc.  Vertices that *coincide* with a corner are therefore
+    excluded along with the corners themselves.
+    """
     count = len(uv)
     if count < 3:
         return []
@@ -225,7 +255,7 @@ def ear_clip(uv: np.ndarray) -> list[tuple[int, int, int]]:
             if any(
                 _point_in_triangle(uv[other], a, b, c)
                 for other in indices
-                if other not in (prev, here, nxt)
+                if other not in (prev, here, nxt) and not _coincides(uv[other], a, b, c)
             ):
                 continue
             triangles.append((prev, here, nxt))
@@ -245,12 +275,104 @@ def ear_clip(uv: np.ndarray) -> list[tuple[int, int, int]]:
     return triangles
 
 
-def _bridge_holes(outer: np.ndarray, holes: list[np.ndarray]) -> tuple[np.ndarray, list[int]]:
+def _reflex(uv: np.ndarray) -> np.ndarray:
+    """Which vertices of a counter-clockwise polygon turn the wrong way."""
+    prev = np.roll(uv, 1, axis=0)
+    nxt = np.roll(uv, -1, axis=0)
+    first = uv - prev
+    second = nxt - uv
+    return first[:, 0] * second[:, 1] - first[:, 1] * second[:, 0] < 0.0
+
+
+def _visible_vertex(polygon: np.ndarray, point: np.ndarray) -> int:
+    """A vertex of *polygon* that *point* can be joined to without crossing it.
+
+    The standard construction: cast a ray from the hole's rightmost vertex
+    along +u, take the first polygon edge it meets, and bridge to that edge's
+    right-hand endpoint — unless a reflex vertex blocks the way, in which case
+    bridge to the blocking vertex that subtends the smallest angle.
+
+    This is the textbook construction and it is the one tried first, but it is
+    not always the one that works: on these samples it triangulates five fewer
+    faces than :func:`_nearest_right`, the cruder rule it replaced.  Neither
+    dominates, so :func:`tessellate_face` tries both and keeps whichever comes
+    out with the right area.
+    """
+    count = len(polygon)
+    best: tuple[float, int, int] | None = None
+    for index in range(count):
+        head = polygon[index]
+        tail = polygon[(index + 1) % count]
+        # Edges that straddle the ray's height, counted half-open so a vertex
+        # exactly on the ray is not found twice.
+        if (head[1] > point[1]) == (tail[1] > point[1]):
+            continue
+        share = (point[1] - head[1]) / (tail[1] - head[1])
+        hit = head[0] + share * (tail[0] - head[0])
+        if hit < point[0]:
+            continue
+        if best is None or hit < best[0]:
+            best = (hit, index, (index + 1) % count)
+    if best is None:
+        # No edge to the right: the point is outside, which should not happen
+        # for a hole.  Fall back to the nearest vertex rather than failing.
+        return int(np.argmin(np.linalg.norm(polygon - point, axis=1)))
+
+    hit, head_index, tail_index = best
+    candidate = head_index if polygon[head_index][0] > polygon[tail_index][0] else tail_index
+    intersection = np.array([hit, point[1]])
+    if np.allclose(polygon[candidate], intersection, atol=1e-12):
+        return candidate
+
+    # A reflex vertex inside the triangle (point, intersection, candidate)
+    # blocks the bridge; the least-angle one among them is always visible.
+    corner = polygon[candidate]
+    reflex = _reflex(polygon)
+    blocking: list[int] = []
+    for index in range(count):
+        if index in (head_index, tail_index) or not reflex[index]:
+            continue
+        if _point_in_triangle(polygon[index], point, intersection, corner):
+            blocking.append(index)
+    if not blocking:
+        return candidate
+
+    def angle(index: int) -> tuple[float, float]:
+        delta = polygon[index] - point
+        span = float(np.linalg.norm(delta))
+        return (abs(delta[1]) / span if span else 0.0, span)
+
+    return min(blocking, key=angle)
+
+
+def _nearest_right(polygon: np.ndarray, point: np.ndarray) -> int:
+    """The nearest vertex of *polygon* at or to the right of *point*.
+
+    Cruder than :func:`_visible_vertex` — it is not a visibility test at all,
+    and can in principle pick a vertex the hole cannot see — but it succeeds on
+    outlines where the ray cast does not, so it is kept as a second attempt
+    rather than discarded.  Nothing rests on which one wins: the area check
+    that follows accepts neither on trust.
+    """
+    to_right = np.flatnonzero(polygon[:, 0] >= point[0])
+    if not len(to_right):
+        to_right = np.arange(len(polygon))
+    return int(to_right[int(np.argmin(np.linalg.norm(polygon[to_right] - point, axis=1)))])
+
+
+#: Bridge constructions, tried in order until one triangulates to the right area.
+BRIDGE_RULES = (_visible_vertex, _nearest_right)
+
+
+def _bridge_holes(
+    outer: np.ndarray, holes: list[np.ndarray], rule=_visible_vertex
+) -> tuple[np.ndarray, list[int]]:
     """Splice each hole into the outer outline, returning one simple polygon.
 
-    Each hole is entered at its rightmost vertex and left again at the nearest
-    outer vertex to its right, which is the standard cut that keeps the result
-    simple.
+    *outer* runs counter-clockwise and each hole clockwise.  Holes are spliced
+    rightmost first, and each is cut into whatever the polygon has become —
+    including earlier holes — which is what keeps the result simple when a
+    face has several.
     """
     polygon = list(outer)
     origin = list(range(len(outer)))
@@ -264,14 +386,7 @@ def _bridge_holes(outer: np.ndarray, holes: list[np.ndarray]) -> tuple[np.ndarra
         zip(holes, offsets, strict=True), key=lambda item: -item[0][:, 0].max()
     ):
         entry = int(np.argmax(hole[:, 0]))
-        current = np.array(polygon)
-        # Nearest outer vertex that lies to the right of the hole's entry.
-        to_right = current[:, 0] >= hole[entry, 0]
-        candidates = np.flatnonzero(to_right)
-        if not len(candidates):
-            candidates = np.arange(len(current))
-        distances = np.linalg.norm(current[candidates] - hole[entry], axis=1)
-        bridge = int(candidates[int(np.argmin(distances))])
+        bridge = rule(np.array(polygon), hole[entry])
 
         ring = [(entry + step) % len(hole) for step in range(len(hole) + 1)]
         inserted = [hole[i] for i in ring] + [polygon[bridge]]
@@ -660,9 +775,30 @@ def tessellate_face(
         ordered = [rings[outer_index], *hole_rings]
         vertices = np.concatenate(ordered)
         params = np.concatenate([outer_uv, *hole_uvs])
-        polygon_uv, origin = _bridge_holes(outer_uv, hole_uvs)
-        local = ear_clip(polygon_uv)
-        triangles = [(origin[a], origin[b], origin[c]) for a, b, c in local]
+        # A triangulation that covers a hole is invisible to the deviation
+        # check — filled-in triangles sit exactly on a plane like any other —
+        # so the area is checked instead.  It must come to what the loops
+        # enclose: outer less holes, no more and no less.
+        #
+        # Measured *unsigned*.  A fan that covers the hole as well as the face
+        # emits it with the opposite winding, so the signed total still comes
+        # out right; only the absolute total gives it away.
+        wanted = abs(_signed_area(outer_uv) + sum(_signed_area(uv) for uv in hole_uvs))
+        triangles = None
+        for rule in BRIDGE_RULES if hole_uvs else BRIDGE_RULES[:1]:
+            polygon_uv, origin = _bridge_holes(outer_uv, hole_uvs, rule)
+            local = ear_clip(polygon_uv)
+            built = sum(abs(_triangle_area(polygon_uv, a, b, c)) for a, b, c in local)
+            if abs(built - wanted) <= _AREA_TOLERANCE * max(wanted, 1.0):
+                triangles = [(origin[a], origin[b], origin[c]) for a, b, c in local]
+                break
+        if triangles is None:
+            reason = (
+                "triangulation does not respect the face's holes"
+                if hole_uvs
+                else "triangulation does not cover the face"
+            )
+            return Mesh(), reason, 0.0
 
     if not triangles:
         return Mesh(), "triangulation produced nothing", 0.0
