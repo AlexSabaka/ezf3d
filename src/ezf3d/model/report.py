@@ -43,6 +43,17 @@ class SegmentInfo(BaseModel):
     #: How many registries the segment holds — one per component that can own
     #: a timeline.
     feature_registries: int = 0
+    #: Module states in the meta stream's chain.
+    meta_records: int = 0
+    #: Objects the meta stream indexes into the bulk stream, each with a known
+    #: offset and extent.
+    objects: int = 0
+    #: One past the highest object id ever issued in this segment.
+    next_object_id: int = 0
+    #: Schema revision per subsystem, from the meta stream's footer.
+    meta_schema: dict[str, int] = Field(default_factory=dict)
+    #: Meta-stream bytes this reader did not account for.
+    meta_unread: int = 0
 
 
 class AssetInfo(BaseModel):

@@ -151,20 +151,20 @@ def _render_info(report: Any, depth: int = 0) -> None:
             box=None,
             pad_edge=False,
         )
-        for column in ("segment", "type", "ver", "meta", "bulk", "declares"):
+        for column in ("segment", "type", "ver", "meta", "bulk", "objects", "declares"):
             table.add_column(column, overflow="fold")
         for segment in asset.segments:
             # Kinds the registries allow, not a tally of features: see
-            # BulkStream.feature_registries.
-            features = ", ".join(segment.declared_features[:6])
-            if len(segment.declared_features) > 6:
-                features += f", +{len(segment.declared_features) - 6} more"
+            # BulkStream.feature_registries.  Named in full by --json.
+            kinds = len(segment.declared_features)
+            features = f"{kinds} kinds" if kinds else "—"
             table.add_row(
                 segment.name,
                 segment.type,
                 segment.version,
                 _si(segment.meta_size),
                 _si(segment.bulk_size),
+                f"{segment.objects:,}",
                 f"[green]{features}[/]" if segment.is_design else features or "[dim]—[/]",
             )
         console.print(table)

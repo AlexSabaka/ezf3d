@@ -42,6 +42,11 @@ def segment_info(document: Document, asset: Asset) -> list[SegmentInfo]:
                 is_design=segment.is_design,
                 declared_features=sorted(segment.bulk.declared_feature_types()),
                 feature_registries=len(segment.bulk.feature_registries()),
+                meta_records=len(segment.meta.records),
+                objects=len(segment.meta.index),
+                next_object_id=segment.meta.next_id,
+                meta_schema=dict(sorted(segment.meta.schema.items())),
+                meta_unread=segment.meta.unread,
             )
         )
     return rows
