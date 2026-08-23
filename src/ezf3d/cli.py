@@ -591,7 +591,6 @@ def render(
         "omitted": scene.omitted,
         "skipped": scene.skipped,
         "ink_bounds": list(ink) if ink else None,
-        "unplaced": scene.unplaced,
         "shaded": shaded,
         "triangles": len(solid) if solid is not None else 0,
         "source": source,
@@ -615,11 +614,6 @@ def render(
         console.print(
             f"[yellow]{scene.approximated} edges drawn as straight chords[/] "
             f"[dim]— approximate, not real geometry[/]"
-        )
-    if scene.unplaced:
-        console.print(
-            "[yellow]bodies are drawn in their own local coordinates[/] [dim]— component "
-            "placement lives in the design segment (Phase 3); use --body for one part[/]"
         )
 
 

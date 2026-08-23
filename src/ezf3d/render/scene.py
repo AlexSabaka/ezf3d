@@ -1,12 +1,21 @@
 """Assemble a document's geometry into something renderable.
 
-**Bodies are drawn in their own local coordinates.**  A Fusion design places
-its components with occurrence transforms held in the design segment, not in
-the ASM body files — 16 of one sample's 22 bodies have bounding boxes straddling
-the origin because each is modelled about its own frame.  Rendering the whole
-document therefore stacks the parts on top of each other rather than assembling
-them; :attr:`Scene.unplaced` says so, and ``--body`` renders one part correctly.
-Assembly placement arrives with the design graph in Phase 3.
+**Bodies are already placed.**  This module used to warn that they were not —
+that a whole-document render stacked the parts on top of each other because
+each was modelled about its own frame, on the evidence that most of one
+sample's bodies had bounding boxes straddling the origin.  That evidence does
+not carry: a part centred near the assembly origin straddles it too.
+
+Three measurements say the ASM coordinates are the assembly's own.  Every
+``body`` record that carries a ``transform`` resolves to an identity one —
+basis ``(1,0,0) (0,1,0) (0,0,1)``, no translation, unit scale — in all 682 of
+them across the samples.  The ``.f3z`` assembly's graphics cache draws ten
+bodies at once and every one of its cached edge polylines ends on a B-Rep
+``point`` with no transform applied.  And a whole-document render of the
+22-body sample comes out as a robot arm rather than a pile.
+
+So the whole document is the right thing to draw, and ``--body`` is a
+convenience rather than a correction.
 """
 
 from __future__ import annotations
@@ -36,8 +45,6 @@ class Scene:
     #: Edges left out for the same reason, which is the default.
     omitted: int = 0
     skipped: int = 0
-    #: True when more than one body is drawn without assembly placement.
-    unplaced: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -79,7 +86,6 @@ def build_scene(
             pieces.append(segments)
     if pieces:
         scene.segments = np.concatenate(pieces)
-    scene.unplaced = len(chosen) > 1
     return scene
 
 
