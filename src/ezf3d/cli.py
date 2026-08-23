@@ -24,7 +24,7 @@ from ezf3d.asm.records import parse as parse_asm
 from ezf3d.asm.tokens import Tag
 from ezf3d.container.archive import UnsupportedCompressionError
 from ezf3d.export.writers import CM_TO_MM, FORMATS, ExportError, write_mesh
-from ezf3d.inspect import body_infos, document_info
+from ezf3d.inspect import body_infos, design_infos, document_info
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
 from ezf3d.model.document import Document, Ef3dError, readfile
 from ezf3d.model.report import Envelope
@@ -922,6 +922,61 @@ def _print_agreement(payload: dict[str, Any]) -> None:
         f"{payload['agreement']['unmatched']} unpaired[/]"
     )
     console.print(table)
+
+
+@app.command()
+def components(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    features: Annotated[
+        bool, typer.Option("--features", help="List each component's declared feature kinds.")
+    ] = False,
+) -> None:
+    """The design's component tree, and which bodies each component owns."""
+    try:
+        with readfile(path) as doc:
+            rows = design_infos(doc)
+            if not rows:
+                raise Ef3dError("this document carries no design segment")
+    except READ_ERRORS as exc:
+        _fail("components", path, exc, as_json)
+        return
+
+    payload = {"documents": [_dump(row) for row in rows]}
+    if as_json:
+        _emit("components", path, payload, True)
+        return
+
+    for row in rows:
+        console.print(
+            f"[bold]{row.document}[/] [dim]— {len(row.components)} components, "
+            f"{row.objects:,} design objects[/]"
+        )
+        table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+        for column, justify in (
+            ("component", "left"),
+            ("id", "right"),
+            ("bodies", "right"),
+            ("declares", "left"),
+        ):
+            table.add_column(column, justify=justify, overflow="fold")
+        for component in row.components:
+            kinds = len(component.declared_features)
+            shown = (
+                ", ".join(component.declared_features)
+                if features
+                else (f"{kinds} kinds" if kinds else "—")
+            )
+            label = component.name if component.named else f"[dim]{component.name[:8]}…[/]"
+            table.add_row(label, str(component.oid), str(len(component.bodies)), shown)
+        console.print(table)
+        # The graph names its bodies by blob filename, so this is a real check
+        # rather than a restatement: the two counts come from different files.
+        mark = "[green]" if row.bodies_named == row.bodies_on_disk else "[yellow]"
+        console.print(
+            f"{mark}{row.bodies_named}[/] bodies named by the graph, "
+            f"{row.bodies_on_disk} in Breps.BlobParts\n"
+        )
 
 
 # -- version ---------------------------------------------------------------
