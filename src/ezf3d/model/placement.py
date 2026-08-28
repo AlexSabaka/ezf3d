@@ -29,14 +29,22 @@ x = 3.12 cm: exactly 0.02 cm apart, along their own normal.  The distance comes
 from a parameter record in the design stream and the separation from vertex
 positions in the ASM stream, parsed by unrelated code.
 
-**What this cannot do is pick one.**  A design repeats its own shapes.  SUCKER's
-slot lands in 8 distinct places, and that design's ``R-Pattern1-vCount`` is 8 --
-the candidates *are* the pattern instances, and the sketch sits on one of them.
-Nothing in the geometry says which, so a placement is reported as the set it is.
-Roughly 40% of sketches match at all; the rest have been filleted, cut or
-shelled since, and no face of the finished body still carries their outline.
+**A second route is exact, and is tried first.**  An ASM ``sketch_attrib_def``
+names the sketch curve a B-Rep edge came from, so the correspondence between a
+sketch point and a world vertex is *read* rather than guessed -- see
+:func:`sketch_edges`.  Grouping those edges by shared world vertices separates a
+patterned copy from its seed, and each group is fitted alone.  That is what
+makes the answer unique far more often: 25 of its 52 placements against 2 of
+shape matching's 13.
 
-See :doc:`unknowns </format/unknowns>` for what would settle it.
+**Neither route can always pick one.**  A design repeats its own shapes, and
+where every instance is reachable the candidates *are* the instances -- SUCKER's
+slot lands in 8 places and that design's ``R-Pattern1-vCount`` is 8.  So a
+placement is reported as the set it is.  64 of the samples' 130 sketches are
+placed at all; the rest have been filleted, cut or shelled since, and neither an
+edge nor a face still carries them.
+
+See :doc:`unknowns </format/unknowns>` for what would settle the rest.
 """
 
 from __future__ import annotations
