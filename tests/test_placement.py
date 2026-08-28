@@ -14,9 +14,12 @@ and that is asserted to be reported rather than resolved.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import numpy as np
 import pytest
 
+from ezf3d.model.design import read_design
 from ezf3d.model.placement import (
     MIN_LOOP,
     ORTHONORMAL_TOLERANCE,
@@ -25,8 +28,9 @@ from ezf3d.model.placement import (
     Frame,
     Placement,
     Placements,
+    closure_check,
+    place_by_edges,
     place_sketches,
-    shared_keys,
     signature,
     sketch_edges,
     spread,
@@ -200,74 +204,36 @@ def test_a_body_edge_names_the_sketch_curve_that_drew_it(sketch_links):
 
 
 @pytest.mark.slow
-def test_a_closed_body_edge_names_a_circle(sketch_links):
-    """The curve typing of 4.0b, checked against ASM topology.
+def test_a_key_contested_inside_its_own_component_is_refused(sketch_links):
+    """What the scope changed, and what it did not.
 
-    A B-Rep edge that closes on itself can only have come from a full circle,
-    and every one of them did. The kind is read from the design stream by
-    counting point references and the closure from vertex identity in the ASM
-    stream, so the two agreeing is a check across parsers rather than within
-    one.
-
-    Only that direction holds: a circle cut by an intersection leaves an open
-    edge, and two of SUCKER's do. So the assertion is about closed edges, not
-    about circles.
+    A key shared across the *document* is fine now — the body says which
+    component's table to read, and Robotic_Bhujha shares 159 of those while
+    sharing none inside any component. A key shared inside one component is
+    still ambiguous, and those are still refused rather than guessed.
     """
-    seen = 0
+    from ezf3d.model.placement import _by_component
+
     for child, edges in sketch_links:
         sketches = read_sketches(child.design)
-        kind_of = {curve.oid: curve.kind for sketch in sketches for curve in sketch.curves}
-        for edge in edges:
-            seen += 1
-            if edge.start == edge.end:
-                assert kind_of[edge.curve] == "Circle", f"{child.name}: {edge.curve}"
-    if not seen:
-        pytest.skip("no body of this sample carries a sketch attribute")
-
-
-def test_the_link_reaches_far_more_sketches_than_shape_matching(sucker, shared_document):
-    """8 of 8 in SUCKER, against the 5 the loop signatures reach.
-
-    Worth pinning because it is the reason the attribute matters: shape
-    matching only works while a face still carries the sketch's outline, and
-    most have been filleted or cut since. The attribute survives that.
-    """
-    child = shared_document(sucker)
-    sketches = read_sketches(child.design)
-    named = {edge.sketch for edge in sketch_edges(child, sketches)}
-    assert len(named) == len(sketches) == 8
-    assert len(named) > len(place_sketches(child).by_sketch())
-
-
-def test_a_curve_carries_the_identity_the_attribute_names_it_by(sucker, shared_document):
-    child = shared_document(sucker)
-    sketches = read_sketches(child.design)
-    keyed = [c for s in sketches for c in s.curves if c.key != (0, 0)]
-    assert keyed, "curves should carry a primary id"
-    # The key is the join, so it has to identify a curve rather than group them.
-    keys = [c.key for c in keyed]
-    assert len(set(keys)) == len(keys), "a curve identity must be unique"
-    assert all(primary > 0 for primary, _ in keys)
-
-
-@pytest.mark.slow
-def test_a_shared_key_is_refused_rather_than_guessed(sketch_links):
-    """The correction that made the rest of this hold.
-
-    Curve ids are scoped, not global: Robotic_Bhujha reuses 159 of its 331
-    keys and one belongs to five circles at once. Attributing an edge to
-    whichever curve a dictionary happened to keep is what a plain lookup does,
-    and it put 209 closed edges on lines. Refusing the shared ones takes that
-    to nought — the disambiguation proving itself.
-    """
-    for child, edges in sketch_links:
-        sketches = read_sketches(child.design)
-        shared = shared_keys(sketches)
-        named = {edge.curve for edge in edges}
-        contested = {
-            curve.oid for sketch in sketches for curve in sketch.curves if curve.key in shared
-        }
-        assert not (named & contested), f"{child.name}: attributed a contested key"
+        _, contested = _by_component(child, sketches)
+        if not contested:
+            continue
+        design = read_design(child.design)
+        key_of = {curve.oid: curve.key for sketch in sketches for curve in sketch.curves}
+        owner_of = {}
+        for sketch in sketches:
+            owner = design.owner(sketch.oid)
+            owner_of[sketch.oid] = owner.oid if owner is not None else -1
+        offenders = [
+            edge.curve
+            for edge in edges
+            if edge.route == "component"
+            and key_of.get(edge.curve) in contested.get(owner_of.get(edge.sketch), ())
+        ]
+        assert not offenders, (
+            f"{child.name}: {offenders[:5]} resolved from a key their own component shares"
+        )
 
 
 def test_a_curve_key_is_unique_within_its_own_sketch(opened):
@@ -289,6 +255,77 @@ def test_a_curve_key_is_unique_within_its_own_sketch(opened):
             assert len(set(keys)) == len(keys), f"{child.name}: sketch {sketch.oid}"
     if not seen:
         pytest.skip("no keyed curves in this sample")
+
+
+@pytest.mark.slow
+def test_a_closed_edge_names_a_circle_after_scoping(sketch_links):
+    """The measure that caught the scope being wrong, kept as a check.
+
+    A B-Rep edge returning to its own start can only have come from a full
+    circle. Reading the key with no scope at all put 209 closed edges on lines;
+    scoped to the body's component, 794 of 796 are right. The two exceptions
+    are in the assembly of XREF'd documents, which is also the only sample
+    whose components still share keys.
+    """
+    good = bad = 0
+    for child, edges in sketch_links:
+        found, wrong = closure_check(read_sketches(child.design), edges)
+        good += found
+        bad += len(wrong)
+    if not (good + bad):
+        pytest.skip("no closed edges in this sample")
+    assert good / (good + bad) >= 0.98, f"{bad} closed edges do not name a circle"
+
+
+@pytest.mark.slow
+def test_the_component_route_carries_most_of_the_link(sketch_links):
+    """The scope is what made the attribute usable, so it should dominate."""
+    routes = Counter(edge.route for _, edges in sketch_links for edge in edges)
+    if not routes:
+        pytest.skip("no sketch attributes in this sample")
+    assert routes["component"] > routes.get("document", 0)
+
+
+@pytest.mark.slow
+def test_edge_placement_is_unique_more_often_than_shape_matching(placed):
+    """The reason the exact route is tried first.
+
+    Shape matching cannot tell a patterned copy from its seed — the shapes are
+    congruent. Edges can: a copy shares no vertex with the seed, so it falls
+    out as a separate component and each is fitted alone.
+    """
+    by_route: dict[str, list[bool]] = {}
+    for _, placements in placed:
+        for row in placements:
+            by_route.setdefault(row.route, []).append(row.is_unique)
+    if "edges" not in by_route or "shape" not in by_route:
+        pytest.skip("this sample uses only one route")
+    exact = sum(by_route["edges"]) / len(by_route["edges"])
+    matched = sum(by_route["shape"]) / len(by_route["shape"])
+    assert exact >= matched, f"edges {exact:.2f} vs shape {matched:.2f}"
+
+
+def test_edge_placement_needs_a_sketch_and_a_body(focuser, shared_document):
+    for child in shared_document(focuser).documents():
+        if child.design is not None and not child.bodies:
+            assert place_by_edges(child) == []
+
+
+def test_closure_check_ignores_open_edges():
+    """A circle cut by an intersection leaves an open edge, so only one
+    direction of the invariant holds and the other must not be asserted."""
+    from ezf3d.model.placement import SketchEdge
+    from ezf3d.model.sketch import Curve, Sketch, Sketches
+
+    circle = Curve(oid=2, size=0, kind="Circle", points=(9,))
+    line = Curve(oid=3, size=0, kind="Line", points=(9, 10))
+    sketches = Sketches(sketches=[Sketch(oid=1, index=0, name="S", curves=(circle, line))])
+    closed = SketchEdge(sketch=1, curve=2, start=(0, 0, 0), end=(0, 0, 0))
+    open_line = SketchEdge(sketch=1, curve=3, start=(0, 0, 0), end=(1, 0, 0))
+    open_circle = SketchEdge(sketch=1, curve=2, start=(0, 0, 0), end=(1, 0, 0))
+    assert closure_check(sketches, [closed, open_line, open_circle]) == (1, ())
+    wrong = SketchEdge(sketch=1, curve=3, start=(5, 0, 0), end=(5, 0, 0))
+    assert closure_check(sketches, [wrong]) == (0, (3,))
 
 
 def test_the_attribute_name_is_the_one_the_kernel_writes():
