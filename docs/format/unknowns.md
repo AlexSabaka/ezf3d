@@ -16,17 +16,17 @@ The difference matters. A decoder can now be written for one type at a time and 
 against exactly the bytes of one record, rather than having to parse a 2.7 MB stream
 sequentially to reach anything.
 
-Five record types are now decoded field by field: the component (its name and the id
+Six record types are now decoded field by field: the component (its name and the id
 range it owns); the **parameter** — name, role, unit, expression and value, 1,193 of them
 across the four samples, each checked four ways; the **feature**'s tail, enough for its
 name, its inputs and its place in the timeline, plus an extrude's operation and
-direction; the material **assignment**; and the sketch **point**, whose coordinates and
-owning sketch both read. See [neutron-streams.md](neutron-streams.md#parameters). The
-rest are still bytes — including the sketch **curve**, which is located and attributed
-but not typed.
+direction; the material **assignment**; the sketch **point**, whose coordinates and
+owning sketch both read; and the sketch **curve** — its kind, the points it names, its
+radius and its span. See [neutron-streams.md](neutron-streams.md#parameters). The
+rest are still bytes.
 
 **Unlocks:** sketch constraints, the remaining feature payloads, joints. Everything Phase
-4 needs beyond the profile.
+4 needs beyond the profile, which now reads.
 
 ## Resolved since first writing
 
@@ -137,6 +137,19 @@ was absent everywhere.
 an extrude — profile, distance, taper, direction, operation — four were readable and the
 profile now has a *shape*. What it does not have is a **place**; see below.
 
+### Resolved: sketch curve types
+
+Decoded; see [neutron-streams.md](neutron-streams.md#what-kind-of-curve-it-is). This
+entry used to say that record size separated circle from line from arc *inside* one
+document and could not be trusted across documents — which was right, and is why the
+count of point references was looked for instead. It types **1,334 of 1,334** curves, and
+the arcs' own geometry confirms it: the stored radius is the distance from the centre
+they name to the endpoint they name, and the stored span the angle those endpoints
+subtend, for all 282.
+
+What remains unread inside a curve record is everything before the radius: roughly 80
+bytes whose `f64` layout differs by kind. Nothing needs them yet.
+
 ## The sketch plane
 
 **Status: located by absence, and recoverable rather than blocking.**
@@ -150,27 +163,18 @@ objects rather than at a plane or a face.
 **The B-Rep can supply it.** ezf3d reads edges to within 2.2e-07 cm of their vertices, so a
 closed profile of known shape matches one planar face loop of the body its extrude
 produced, and that match yields the transform. Deriving the frame and checking the residual
-is a stronger statement than reading a field would have been — but it needs the curves
-typed and ordered into loops first, which is the open piece below.
+is a stronger statement than reading a field would have been.
+
+The prerequisite is now met: curves are typed and 274 closed loops read, so there are
+profiles of known shape to match. **This is the last thing standing between the design
+stream and a transpilable extrude.**
+
+**Also unread: which profile an extrude picks.** A sketch offers several loops — SUCKER's
+sketch #31 offers two — and nothing yet says which one a given extrude sweeps. The B-Rep
+match may settle that too, since only one of them can bound the face the body actually
+has.
 
 **Unlocks:** placing a profile, and with it the last of what an extrude needs.
-
-## Sketch curve types
-
-**Status: located, not typed.**
-
-Every sketch curve record is found and attributed — 1,331 of them across the samples — but
-what *kind* of curve it is is not read. Record size separates them cleanly inside one
-document: 347 for a circle, 356 for a line, 367 for an arc and 805/815 for a spline in
-SUCKER, corroborated by which sketches carry a `Diameter Dimension`. That is a lead and not
-a rule: this same document established directly above that record size classifies nothing
-*across* documents, and these sizes move with the subsystem revision.
-
-The discriminating field has not been found. Until it is, a `Curve` carries its size and no
-type.
-
-**Unlocks:** closing a sketch's curves into loops, which is the profile; and with the
-profile, the plane.
 
 ## Spline surface identification
 

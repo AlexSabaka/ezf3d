@@ -132,12 +132,14 @@ Full notes live in [`docs/format/`](docs/format/).
   regeneration, verified by geometric diff against the original bodies. In progress:
   `ezf3d sketches` reads the profile. An extrude never names its sketch, but every point
   and curve record names the sketch that owns *it* — which places 3,217 of 3,221 entities
-  across the samples and reaches every sketch each design has. The reading is checked
-  against the design's own parameters: a `Linear Dimension` must be the distance between
-  two of its sketch's points, and it is for 155 of 179. Still missing are the sketch
-  *plane*, which the design stream does not appear to carry and which the B-Rep should be
-  able to supply, and the curve *types*, which record size hints at but does not settle.
-  `build123d` emission waits on both.
+  across the samples and reaches every sketch each design has. Curves are typed by how
+  many points they reference rather than by record size — 163 circles, 889 lines, 282
+  arcs — and chain into **274 closed loops**. Two independent checks: a `Linear Dimension`
+  must be the distance between two of its sketch's points (155 of 179), and an arc's
+  stored radius and span must match the centre and endpoints it names (445 of 445, worst
+  miss 2.2e-07 cm). What is still missing is the sketch *plane* — the design stream does
+  not appear to carry it, and the B-Rep should be able to supply it by matching a loop to
+  a planar face. `build123d` emission waits on that.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
   linear static / modal / thermal.
 

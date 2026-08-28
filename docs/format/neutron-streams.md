@@ -517,11 +517,59 @@ larger than 1.8e-15 in the rest, which is rounding rather than depth. The frame 
 would place a profile in 3D is not in the design stream — see
 [unknowns.md](unknowns.md#the-sketch-plane).
 
-Curves are located but **not typed**. Record size separates them cleanly inside one
-document — 347 for a circle, 356 for a line, 367 for an arc, 805/815 for a spline in
-SUCKER, corroborated by which sketches carry a `Diameter Dimension` — but 3.6b
-established that record size classifies nothing across documents, and these sizes move
-with the revision. So the size is carried as the lead it is.
+#### What kind of curve it is
+
+**The kind is how many points the curve references**, and the block that names them sits
+**104 bytes past the type word following `crv_secondary_id`** — 266 into the record in
+three documents and 214 in Focuser Mk1, which is what says it is a field and not an
+offset that happens to work. Two `f64` sit just before it:
+
+```
+f64 radius        at +80 past the same anchor; a line has none
+f64 span          at +96 — the parameter range
+0x01 <u64 point>  from +104, stride 11, until a reference is not a point
+                  of this sketch — which is what bounds the walk
+```
+
+| references | kind | what they are | span |
+|---|---|---|---|
+| 1 | **circle** | the centre | `2π` — a full turn, in all 163 |
+| 2 | **line** | the two endpoints | `±1`, in all 889; the sign is carried, not read |
+| 3 | **arc** | the **centre first**, then the two endpoints | the angle they subtend |
+
+**1,334 of 1,334 curves across the samples type this way**, none left over, and every
+reference is a point of the curve's own sketch.
+
+Record size was the lead that found the field and is deliberately *not* the rule. Size
+does separate the kinds inside one document — 347, 356 and 367 bytes in SUCKER — but
+[the extrude case](#what-an-extrude-does) established that record size classifies nothing
+*across* documents, and it does not here either: SUCKER's line is 356 bytes and
+Robotic_Bhujha's is 360.
+
+**The geometry confirms it.** An arc names a centre and two endpoints, so its stored
+radius must be the distance between them and its stored span the angle they subtend —
+neither of which a record's size could predict. For all **282 arcs** both hold, the worst
+miss being 2.2e-07 cm and 7e-08 rad. Every circle stores exactly `2π`. And for every one
+of the 282, the point in the *first* slot is the one equidistant from the other two,
+which is what identifies it as the centre.
+
+#### Loops
+
+A sketch is a **graph, not an outline**. 245 of the samples' 1,255 curve endpoints carry
+only one curve: construction lines and open chains are ordinary, and Fusion computes the
+closed regions at solve time.
+
+So the loops read are the connected components every one of whose points carries exactly
+two curves, plus each circle, which is a loop by itself. That gives **274 closed loops**
+across the samples; the 480 curves in none of them are counted rather than forced closed.
+
+SUCKER's sketch #31 is the case checkable by eye. Its eight line records looked like four
+duplicated edges when only the points were read. They are two loops:
+
+```
+10299 10306 10305 10302   the outer rectangle, 2 x 1.407 cm
+10315 10318 10317 10316   the 0.5 mm slot
+```
 
 A registry-less `.f3z` member can hold entity records and no sketch object at all;
 Roundified Cray keeps 51. They are counted rather than dropped, so "no sketches" does not
