@@ -17,6 +17,8 @@ from ezf3d.model.placement import (
     Placement,
     Placements,
     SketchEdge,
+    closure_check,
+    place_by_edges,
     place_sketches,
     sketch_edges,
 )
@@ -56,6 +58,8 @@ __all__ = [
     "SketchEdge",
     "Sketches",
     "Timeline",
+    "closure_check",
+    "place_by_edges",
     "place_sketches",
     "read_assignments",
     "read_catalogue",
