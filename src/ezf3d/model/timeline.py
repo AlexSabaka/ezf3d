@@ -169,6 +169,12 @@ class Timeline:
     #: which says this list is the modelling timeline and not the whole of
     #: what Fusion shows.  Counted rather than quietly dropped.
     outside: Counter[str] = field(default_factory=Counter)
+    #: Every named feature-shaped object in the design, by id -- the ones the
+    #: list holds and the ones :attr:`outside` counts alike.  Finding the list
+    #: at all means building this, and the wider set is what
+    #: :mod:`ezf3d.model.sketch` needs: Focuser Mk1 has 39 sketches of which
+    #: the list carries 33.
+    named: dict[int, str] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.features)
@@ -340,8 +346,13 @@ def read_timeline(segment: Segment, parameters: Iterable[Parameter] | None = Non
         if best is None or len(found[0]) > len(best[1]):
             best = (entry.oid, found[0], found[1])
 
+    named = {oid: name for oid, (name, _) in features.items() if name}
     if best is None:
-        return Timeline(declared=declared, outside=_outside(features, set(), declared))
+        return Timeline(
+            declared=declared,
+            outside=_outside(features, set(), declared),
+            named=named,
+        )
     oid, owners, list_items = best
     owned = attribute(features, parameters or ())
     return Timeline(
@@ -365,6 +376,7 @@ def read_timeline(segment: Segment, parameters: Iterable[Parameter] | None = Non
         ],
         declared=declared,
         outside=_outside(features, set(owners), declared),
+        named=named,
     )
 
 
