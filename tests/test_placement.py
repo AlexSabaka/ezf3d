@@ -56,6 +56,7 @@ def placed(opened, sample, _design_cache):
     return rows
 
 
+@pytest.mark.slow
 def test_the_fitted_axes_come_out_orthonormal_without_being_asked_to(placed):
     """The whole argument, in one assertion.
 
@@ -75,6 +76,7 @@ def test_the_fitted_axes_come_out_orthonormal_without_being_asked_to(placed):
                 assert frame.orthonormality < ORTHONORMAL_TOLERANCE
 
 
+@pytest.mark.slow
 def test_a_placed_point_lands_on_the_vertex_it_matched(placed):
     for child, placements in placed:
         for row in placements:
@@ -82,6 +84,7 @@ def test_a_placed_point_lands_on_the_vertex_it_matched(placed):
                 assert frame.residual < RESIDUAL_TOLERANCE, f"{child.name}: {row.sketch}"
 
 
+@pytest.mark.slow
 def test_the_normal_is_a_unit_vector(placed):
     for _, placements in placed:
         for row in placements:
@@ -89,6 +92,7 @@ def test_the_normal_is_a_unit_vector(placed):
                 assert abs(float(np.linalg.norm(frame.normal)) - 1.0) < 1e-9
 
 
+@pytest.mark.slow
 def test_the_match_is_selective(placed):
     """A loop matches a handful of faces, not a useful fraction of them.
 
@@ -101,6 +105,7 @@ def test_the_match_is_selective(placed):
             assert len(row.frames) < placements.faces / 4, f"{child.name}: {row.sketch}"
 
 
+@pytest.mark.slow
 def test_ambiguity_is_reported_rather_than_resolved(placed):
     """More than one candidate is the honest answer, not a failure.
 
@@ -114,6 +119,7 @@ def test_ambiguity_is_reported_rather_than_resolved(placed):
         assert len(placements.unique()) <= len(placements)
 
 
+@pytest.mark.slow
 def test_sketches_that_match_nothing_are_counted(placed):
     """Most sketches have been filleted or cut since and no face carries them."""
     for _, placements in placed:
@@ -171,6 +177,7 @@ def test_the_sweep_distance_corroborates_from_the_other_stream(sucker, shared_do
     assert len(kept) < len(rows[0].frames), "the check has to eliminate something"
 
 
+@pytest.mark.slow
 def test_a_body_edge_names_the_sketch_curve_that_drew_it(sketch_links):
     """The link the reference graph does not carry, read rather than inferred.
 
@@ -192,6 +199,7 @@ def test_a_body_edge_names_the_sketch_curve_that_drew_it(sketch_links):
         pytest.skip("no body of this sample carries a sketch attribute")
 
 
+@pytest.mark.slow
 def test_a_closed_body_edge_names_a_circle(sketch_links):
     """The curve typing of 4.0b, checked against ASM topology.
 
@@ -242,6 +250,7 @@ def test_a_curve_carries_the_identity_the_attribute_names_it_by(sucker, shared_d
     assert all(primary > 0 for primary, _ in keys)
 
 
+@pytest.mark.slow
 def test_a_shared_key_is_refused_rather_than_guessed(sketch_links):
     """The correction that made the rest of this hold.
 
