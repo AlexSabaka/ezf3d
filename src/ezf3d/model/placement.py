@@ -179,9 +179,10 @@ def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
     SUCKER all 163 curves have distinct keys and all 1,163 attributes resolve;
     the fan's 3 do too.  Robotic_Bhujha reuses 159 of its 331 keys across
     different sketches -- one belongs to five circles at once -- and Focuser
-    Mk1 reuses 162 of 351.  What the scope is has not been found: the payload's
-    other four numbers are small counters and a sense flag, and none of them
-    names a sketch.
+    Mk1 reuses 162 of 351.  The scope is **the sketch**: across all 1,331 curves
+    of the samples no two curves of one sketch share a key, so the id names a
+    curve given its sketch -- and the attribute does not carry the sketch.  Its
+    other four numbers are counters and a sense flag, and supply none of it.
 
     So an edge is returned only where its key belongs to exactly one curve in
     the document.  Ambiguous ones are counted by :func:`ambiguous_edges` rather

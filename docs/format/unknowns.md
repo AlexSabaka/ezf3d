@@ -294,11 +294,21 @@ the `(crv_primary_id, crv_secondary_id)` that the sketch curve record itself hol
 B-Rep edge says which sketch curve drew it, by a key written into two different streams.
 See [neutron-streams.md](neutron-streams.md#sketches).
 
-**The key is scoped, not global**, and that is the open part. SUCKER's 163 curves have
+**The key is scoped to a sketch**, and that is the open part. SUCKER's 163 curves have
 distinct keys and all 1,163 of its attributes resolve; the fan's 3 do too. Robotic_Bhujha
 reuses **159 of its 331** keys — one belongs to five circles at once — and Focuser Mk1
-reuses 162 of 351. The payload's other four columns do not help: two are small counters,
-one is a sense flag, and one is always zero. Nothing in the attribute names a sketch.
+reuses 162 of 351.
+
+The scope is now pinned rather than merely suspected: across all 1,331 curves of the
+samples, **no two curves of the same sketch share a key**. So the id identifies a curve
+unambiguously *given its sketch* — and the attribute does not carry the sketch. The
+payload's other four columns do not supply it either: two are small counters, one is a
+sense flag, and one is always zero.
+
+That makes the remaining question exact. Either the ASM side names the sketch somewhere
+else — a sibling attribute, or `generic_tag_attrib_def`, which is the larger population at
+5,629 records and chains between attributes — or the numbering has a per-sketch base that
+can be recovered. Both are findable; neither is found.
 
 Reading it globally therefore attributes an edge to whichever curve a dictionary happened
 to keep. That is not a hypothetical: a B-Rep edge that closes on itself can only have come

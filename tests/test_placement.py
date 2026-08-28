@@ -275,6 +275,27 @@ def test_a_shared_key_is_refused_rather_than_guessed(opened):
         assert not (named & contested), f"{child.name}: attributed a contested key"
 
 
+def test_a_curve_key_is_unique_within_its_own_sketch(opened):
+    """What pins the scope, and turns the open question into a precise one.
+
+    The key is ambiguous across a document but never inside one sketch — no two
+    of the 1,331 curves in the samples collide with a sibling. So the id names
+    a curve *given its sketch*, and what is missing is only the sketch. That is
+    a findable thing rather than a vague one.
+    """
+    seen = 0
+    for child in opened.documents():
+        if child.design is None:
+            continue
+        sketches = read_sketches(child.design)
+        for sketch in sketches:
+            keys = [curve.key for curve in sketch.curves if curve.key != (0, 0)]
+            seen += len(keys)
+            assert len(set(keys)) == len(keys), f"{child.name}: sketch {sketch.oid}"
+    if not seen:
+        pytest.skip("no keyed curves in this sample")
+
+
 def test_the_attribute_name_is_the_one_the_kernel_writes():
     assert SKETCH_ATTRIB == "sketch_attrib_def"
 
