@@ -575,6 +575,49 @@ A registry-less `.f3z` member can hold entity records and no sketch object at al
 Roundified Cray keeps 51. They are counted rather than dropped, so "no sketches" does not
 read as "no sketch geometry".
 
+#### Where a sketch sits
+
+The frame that would place a profile in 3D is **not in the design stream** — see
+[unknowns.md](unknowns.md#the-sketch-plane). It is recoverable from the geometry, because
+an extrude sweeps a profile and the profile's loop turns up as the boundary of a planar
+face of the resulting body.
+
+Match the two and solve
+
+```
+world = origin + x * u_dir + y * v_dir
+```
+
+as a **free** affine map: three unconstrained 3-vectors, nine numbers, nothing requiring
+the axes to be perpendicular or unit length. For a real match they come out orthonormal
+anyway. Over the samples the worst departure is **6.9e-13** and the worst residual
+**7.0e-10 cm**; SUCKER's slot fits to 4e-15 with `|u| = |v| = 1.000000000000`. That is the
+evidence — a wrong correspondence does not produce an orthonormal frame by accident — so
+the constraint is used to *filter* answers rather than to shape the solve.
+
+Loops are compared by the multiset of distances between their points, which no rigid
+motion changes. It is selective: the 0.5 mm slot matches **4 of 1,178** planar faces.
+
+**A second stream corroborates it.** SUCKER's sketch #31 drives extrude #32, whose
+`AlongDistance` is −0.2 mm. Two of the matched faces sit at x = 3.1 and x = 3.12 cm —
+0.02 cm apart along their own normal. The distance is read from a parameter record in the
+design stream; the separation is between vertex positions in the ASM stream. Unrelated
+parsers, agreeing.
+
+**What it cannot do is pick one.** A design repeats its own shapes, so a profile fits at
+every instance: SUCKER's slot lands in 8 distinct places and that design's
+`R-Pattern1-vCount` is 8. The candidates *are* the pattern instances, and geometry does
+not say which is the seed. `ezf3d sketches --place` reports the set.
+
+| design | sketches | placed | planar faces searched |
+|---|---|---|---|
+| SUCKER | 8 | 5 | 1,178 |
+| Robotic_Bhujha | 82 | 26 | 1,678 |
+| Focuser Mk1 | 39 | 18 | 7,415 |
+
+49 of 130 sketches match at all. The rest have been filleted, cut or shelled since, and no
+face of the finished body still carries their outline.
+
 ### Materials
 
 The design stream stores *assignments*, not materials. The materials themselves live in

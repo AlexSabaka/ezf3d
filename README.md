@@ -53,7 +53,7 @@ ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees wi
 ezf3d components <file>           # the component tree, its bodies, and its materials
 ezf3d params  <file>              # every parameter: name, role, unit, expression, value
 ezf3d timeline <file> [--inputs]  # the features in run order, what each does and drives
-ezf3d sketches <file> [--points]  # every sketch: its points, curves and dimensions
+ezf3d sketches <file> [--place]   # every sketch: points, curves, loops, where it sits
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -137,9 +137,12 @@ Full notes live in [`docs/format/`](docs/format/).
   arcs — and chain into **274 closed loops**. Two independent checks: a `Linear Dimension`
   must be the distance between two of its sketch's points (155 of 179), and an arc's
   stored radius and span must match the centre and endpoints it names (445 of 445, worst
-  miss 2.2e-07 cm). What is still missing is the sketch *plane* — the design stream does
-  not appear to carry it, and the B-Rep should be able to supply it by matching a loop to
-  a planar face. `build123d` emission waits on that.
+  miss 2.2e-07 cm). `ezf3d sketches --place` then recovers where a sketch *sits*, by
+  matching its loops to the planar faces of the bodies they helped build — fitting the
+  frame as a free affine map whose axes come out orthonormal without being asked to,
+  worst departure 6.9e-13. What it cannot do is pick one: a design repeats its own shapes,
+  so a profile fits at every instance of a patterned feature, and nothing in the geometry
+  marks the seed. `build123d` emission waits on that.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
   linear static / modal / thermal.
 

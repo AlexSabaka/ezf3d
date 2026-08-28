@@ -152,22 +152,33 @@ bytes whose `f64` layout differs by kind. Nothing needs them yet.
 
 ## The sketch plane
 
-**Status: located by absence, and recoverable rather than blocking.**
+**Status: not in the design stream; recoverable from the geometry, but not uniquely.**
 
 Sketch coordinates are two-dimensional in the sketch's own frame: `z` is zero for 1,876 of
 1,912 points and never exceeds 1.8e-15 in the rest. Placing a profile in 3D needs that
-frame, and the design stream does not appear to carry it. No orthonormal 3×3 basis occurs
+frame, and the design stream does not appear to carry it. No orthonormal 3x3 basis occurs
 anywhere in the id range a sketch owns, and a sketch's `inputs` point at 30-byte tag
 objects rather than at a plane or a face.
 
-**The B-Rep can supply it.** ezf3d reads edges to within 2.2e-07 cm of their vertices, so a
-closed profile of known shape matches one planar face loop of the body its extrude
-produced, and that match yields the transform. Deriving the frame and checking the residual
-is a stronger statement than reading a field would have been.
+**The B-Rep supplies it, and the recovery proves itself.** An extrude sweeps a profile, so
+the profile's loop turns up as the boundary of a planar face. Fitting
+`world = origin + x·u + y·v` as a *free* affine map — nine unconstrained numbers, nothing
+asking the axes to be perpendicular or unit length — yields orthonormal axes anyway, worst
+departure 6.9e-13 and worst residual 7.0e-10 cm. See
+[neutron-streams.md](neutron-streams.md#where-a-sketch-sits). A parameter from the design
+stream corroborates it against ASM vertex positions: SUCKER's slot has two candidate faces
+0.02 cm apart, which is the −0.2 mm its extrude sweeps.
 
-The prerequisite is now met: curves are typed and 274 closed loops read, so there are
-profiles of known shape to match. **This is the last thing standing between the design
-stream and a transpilable extrude.**
+**What is still open is which one.** A design repeats its own shapes, so a profile fits at
+every instance of a patterned feature. SUCKER's slot lands in 8 places and that design's
+`R-Pattern1-vCount` is 8 — the ambiguity is the design's own multiplicity, not noise, and
+nothing in the geometry marks the seed. Only 49 of 130 sketches match at all; the rest have
+been filleted, cut or shelled since.
+
+**What would settle it:** which body a feature produces, or which face a feature consumes.
+Both are the same missing link — the ASM tag attributes below, which persist across
+rebuilds and are what the timeline almost certainly addresses topology through. Resolving
+those would tie a feature to its own faces and end the ambiguity in one move.
 
 **Also unread: profiles that close against geometry outside the sketch.** SUCKER's sketch
 #26 has 24 curves and *no* closed loop: 14 of its endpoints carry one curve each, and none
@@ -178,11 +189,10 @@ is why a good share of them do. A transpiler that assumed a sketch is self-conta
 be wrong about those.
 
 **Also unread: which profile an extrude picks.** A sketch offers several loops — SUCKER's
-sketch #31 offers two — and nothing yet says which one a given extrude sweeps. The B-Rep
-match may settle that too, since only one of them can bound the face the body actually
-has.
+sketch #31 offers two — and nothing yet says which one a given extrude sweeps.
 
-**Unlocks:** placing a profile, and with it the last of what an extrude needs.
+**What it blocks:** faithful transpilation. Four of an extrude's five inputs read; the
+profile has a shape, a set of candidate places, and no way to choose among them.
 
 ## Spline surface identification
 

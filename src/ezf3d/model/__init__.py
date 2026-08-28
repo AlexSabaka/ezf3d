@@ -12,6 +12,7 @@ from ezf3d.model.document import (
 )
 from ezf3d.model.materials import Assignment, Materials, read_assignments, read_catalogue
 from ezf3d.model.parameters import Parameter, Parameters, read_parameters
+from ezf3d.model.placement import Frame, Placement, Placements, place_sketches
 from ezf3d.model.sketch import (
     Curve,
     Loop,
@@ -36,14 +37,18 @@ __all__ = [
     "Ef3dError",
     "Extrude",
     "Feature",
+    "Frame",
     "Loop",
     "Materials",
     "Parameter",
     "Parameters",
+    "Placement",
+    "Placements",
     "Point",
     "Sketch",
     "Sketches",
     "Timeline",
+    "place_sketches",
     "read_assignments",
     "read_catalogue",
     "read_curve",
@@ -66,6 +71,7 @@ from ezf3d.model.report import (
     PackageMember,
     ParameterInfo,
     ParametersInfo,
+    PlacementInfo,
     SegmentInfo,
     SketchesInfo,
     SketchInfo,
@@ -85,6 +91,7 @@ __all__ += [
     "PackageMember",
     "ParameterInfo",
     "ParametersInfo",
+    "PlacementInfo",
     "SegmentInfo",
     "SketchInfo",
     "SketchesInfo",
