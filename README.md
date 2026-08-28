@@ -157,8 +157,8 @@ happens through the transpile path.
 ## Development
 
 ```bash
-uv run pytest                  # everything, ~11 min over 100 MB of sample CAD
-uv run pytest -m "not slow"    # the inner loop, ~4 min (±20 s run to run)
+uv run pytest                  # everything, ~12 min over 100 MB of sample CAD
+uv run pytest -m "not slow"    # the inner loop, ~4.5 min (±20 s run to run)
 uv run ruff check . && uv run ruff format --check .
 ```
 
