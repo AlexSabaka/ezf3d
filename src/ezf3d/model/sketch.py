@@ -90,9 +90,9 @@ _REFERENCE = 0x01
 _STRIDE = 11
 
 #: Most ids between the container an entity names and the sketch feature
-#: itself.  Three in 3,048 of the resolved entities and four in the other 22;
-#: the margin is deliberate slack, and a wider one would start matching the
-#: *next* sketch, so it is bounded rather than open.
+#: itself.  Three for all but 22 of the entities resolved across the samples,
+#: four for those; the margin is deliberate slack, and a wider one would start
+#: matching the *next* sketch, so it is bounded rather than open.
 OWNER_REACH = 8
 
 #: Record sizes considered.  A point is 169 to 225 bytes and a curve 295 to
