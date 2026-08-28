@@ -169,6 +169,14 @@ The prerequisite is now met: curves are typed and 274 closed loops read, so ther
 profiles of known shape to match. **This is the last thing standing between the design
 stream and a transpilable extrude.**
 
+**Also unread: profiles that close against geometry outside the sketch.** SUCKER's sketch
+#26 has 24 curves and *no* closed loop: 14 of its endpoints carry one curve each, and none
+of them coincides with any other point the sketch's curves use. An extrude consumes it
+nonetheless, so its profile must close against edges projected from the body — which are
+not in the sketch's own records. 480 of the samples' 1,334 curves sit in no loop, and this
+is why a good share of them do. A transpiler that assumed a sketch is self-contained would
+be wrong about those.
+
 **Also unread: which profile an extrude picks.** A sketch offers several loops — SUCKER's
 sketch #31 offers two — and nothing yet says which one a given extrude sweeps. The B-Rep
 match may settle that too, since only one of them can bound the face the body actually
