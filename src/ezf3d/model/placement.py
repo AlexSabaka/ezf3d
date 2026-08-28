@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ezf3d.asm.brep import Shape
+from ezf3d.asm.brep import Coedge, Shape
 from ezf3d.asm.geometry import Plane
 from ezf3d.model.sketch import Sketch, Sketches, read_sketches
 
@@ -143,6 +143,129 @@ class Placements:
 
     def sketches_placed(self) -> int:
         return len(self.by_sketch())
+
+
+#: The ASM attribute definition that names a sketch curve.  An ``ATTRIB_CUSTOM``
+#: carrying it hangs off a **coedge** and holds a string of six integers whose
+#: first two are the curve's own ``(crv_primary_id, crv_secondary_id)``.
+SKETCH_ATTRIB = "sketch_attrib_def"
+
+#: Token type codes in an ASM entity record: a string, and a pointer.
+_STRING, _POINTER = 7, 12
+
+
+@dataclass(frozen=True, slots=True)
+class SketchEdge:
+    """A B-Rep edge that says which sketch curve drew it."""
+
+    #: Object id of the sketch, and of the curve within it.
+    sketch: int
+    curve: int
+    #: Where that curve ended up, in world centimetres.
+    start: tuple[float, float, float]
+    end: tuple[float, float, float]
+
+
+def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
+    """Every B-Rep edge an ASM attribute ties back to a sketch curve.
+
+    This is the link the reference graph does not carry.  A coedge's
+    ``sketch_attrib_def`` names a curve by the identity the curve record itself
+    holds -- ``crv_primary_id`` and ``crv_secondary_id`` -- so body topology
+    reaches back to the geometry that drew it by a **key that is read, not
+    inferred**.
+
+    **The key is scoped, not global**, and that bounds what this can say.  In
+    SUCKER all 163 curves have distinct keys and all 1,163 attributes resolve;
+    the fan's 3 do too.  Robotic_Bhujha reuses 159 of its 331 keys across
+    different sketches -- one belongs to five circles at once -- and Focuser
+    Mk1 reuses 162 of 351.  What the scope is has not been found: the payload's
+    other four numbers are small counters and a sense flag, and none of them
+    names a sketch.
+
+    So an edge is returned only where its key belongs to exactly one curve in
+    the document.  Ambiguous ones are counted by :func:`ambiguous_edges` rather
+    than attributed to whichever curve happened to be read last, which is what
+    a plain dictionary would have done silently.
+    """
+    if child.design is None or not child.bodies:
+        return []
+    if sketches is None:
+        sketches = read_sketches(child.design)
+    owner = _unambiguous(sketches)
+    if not owner:
+        return []
+
+    found: list[SketchEdge] = []
+    for body in child.bodies:
+        model = body.model()
+        at = {entity.index: entity for entity in model.entities}
+        for entity in model.entities:
+            if entity.base != "attrib":
+                continue
+            named = [
+                value for kind, value in entity.tokens if kind == _STRING and isinstance(value, str)
+            ]
+            if SKETCH_ATTRIB not in named:
+                continue
+            key = _curve_named(named[-1])
+            if key not in owner:
+                continue
+            hosts = [
+                value
+                for kind, value in entity.tokens
+                if kind == _POINTER and isinstance(value, int) and value >= 0
+            ]
+            node = at.get(hosts[0]) if hosts else None
+            if node is None or node.base != "coedge":
+                continue
+            edge = Coedge(model, node).edge
+            if edge is None or edge.start is None or edge.end is None:
+                continue
+            head, tail = edge.start.position, edge.end.position
+            if head is None or tail is None:
+                continue
+            sketch, curve = owner[key]
+            found.append(
+                SketchEdge(
+                    sketch=sketch,
+                    curve=curve,
+                    start=(float(head[0]), float(head[1]), float(head[2])),
+                    end=(float(tail[0]), float(tail[1]), float(tail[2])),
+                )
+            )
+    return found
+
+
+def _unambiguous(sketches: Sketches) -> dict[tuple[int, int], tuple[int, int]]:
+    """Curve keys that belong to exactly one curve in this document."""
+    seen: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for sketch in sketches:
+        for curve in sketch.curves:
+            if curve.key != (0, 0):
+                seen.setdefault(curve.key, []).append((sketch.oid, curve.oid))
+    return {key: rows[0] for key, rows in seen.items() if len(rows) == 1}
+
+
+def shared_keys(sketches: Sketches) -> dict[tuple[int, int], int]:
+    """Keys more than one curve claims -- the scope this does not yet know."""
+    seen: dict[tuple[int, int], int] = {}
+    for sketch in sketches:
+        for curve in sketch.curves:
+            if curve.key != (0, 0):
+                seen[curve.key] = seen.get(curve.key, 0) + 1
+    return {key: count for key, count in seen.items() if count > 1}
+
+
+def _curve_named(text: str) -> tuple[int, int] | None:
+    """The ``(primary, secondary)`` an attribute's payload names."""
+    parts = text.split()
+    if len(parts) < 2:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except ValueError:
+        return None
 
 
 def signature(points: Iterable[tuple[float, float]]) -> tuple[float, ...] | None:
@@ -321,12 +444,16 @@ __all__ = [
     "ORTHONORMAL_TOLERANCE",
     "RESIDUAL_TOLERANCE",
     "SIGNATURE_PLACES",
+    "SKETCH_ATTRIB",
     "Frame",
     "Placement",
     "Placements",
+    "SketchEdge",
     "place_sketch",
     "place_sketches",
+    "shared_keys",
     "signature",
+    "sketch_edges",
     "spread",
     "swept_pair",
 ]

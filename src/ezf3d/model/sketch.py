@@ -108,7 +108,10 @@ _MAX_RECORD = 2000
 DIMENSION_TOLERANCE = 1e-7
 
 #: The second key in a curve record; the endpoint block is measured from the
-#: type word that follows *it*.
+#: type word that follows *it*.  Both keys are also the curve's *identity*: the
+#: ``u64`` after each one's type word is what an ASM ``sketch_attrib_def``
+#: names the curve by, which is how body topology reaches back to the sketch
+#: that drew it.
 _CURVE_TAIL = "crv_secondary_id"
 
 #: Bytes between that type word and the block of point references.  104 in all
@@ -181,6 +184,10 @@ class Curve:
     #: angle its endpoints subtend for an arc, and +/-1 for a line -- the sign
     #: is carried rather than interpreted, as the extrude's third code is.
     span: float = 0.0
+    #: ``(crv_primary_id, crv_secondary_id)`` -- the curve's own identity, and
+    #: the key an ASM ``sketch_attrib_def`` names it by.  See
+    #: :mod:`ezf3d.model.placement`.
+    key: tuple[int, int] = (0, 0)
 
     @property
     def centre(self) -> int | None:
@@ -477,7 +484,27 @@ def read_curve(body: bytes, item: BulkObject, points: set[int]) -> Curve | None:
         points=tuple(named),
         radius=0.0 if kind == "Line" else radius,
         span=span,
+        key=curve_key(body, item),
     )
+
+
+def curve_key(body: bytes, item: BulkObject) -> tuple[int, int]:
+    """``(crv_primary_id, crv_secondary_id)`` -- the curve's own identity.
+
+    Each key string is followed by its type word and then a ``u64``.  A
+    secondary of zero is ordinary; many curves carry only a primary.
+    """
+    found: list[int] = []
+    for mark in (_CURVE_MARK, _CURVE_TAIL_MARK):
+        at = body.find(mark, item.offset, item.end)
+        word = body.find(_ANCHOR_MARK, at, item.end) if at >= 0 else -1
+        start = word + len(_ANCHOR_MARK)
+        if word < 0 or start + 8 > item.end:
+            found.append(0)
+            continue
+        (value,) = struct.unpack_from("<Q", body, start)
+        found.append(int(value) if value < (1 << 32) else 0)
+    return (found[0], found[1])
 
 
 def read_point(body: bytes, item: BulkObject) -> tuple[float, float] | None:
