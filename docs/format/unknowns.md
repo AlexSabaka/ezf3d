@@ -16,14 +16,17 @@ The difference matters. A decoder can now be written for one type at a time and 
 against exactly the bytes of one record, rather than having to parse a 2.7 MB stream
 sequentially to reach anything.
 
-Three record types are now decoded field by field: the component (its name and the id
-range it owns), the **parameter** — name, role, unit, expression and value, 1,193 of them
-across the four samples, each checked four ways — and the **feature**'s tail, enough for
-its name, its inputs and its place in the timeline. See
-[neutron-streams.md](neutron-streams.md#parameters). The rest are still bytes.
+Five record types are now decoded field by field: the component (its name and the id
+range it owns); the **parameter** — name, role, unit, expression and value, 1,193 of them
+across the four samples, each checked four ways; the **feature**'s tail, enough for its
+name, its inputs and its place in the timeline, plus an extrude's operation and
+direction; the material **assignment**; and the sketch **point**, whose coordinates and
+owning sketch both read. See [neutron-streams.md](neutron-streams.md#parameters). The
+rest are still bytes — including the sketch **curve**, which is located and attributed
+but not typed.
 
-**Unlocks:** sketch entities and constraints, feature payloads, joints. Everything Phase
-3.5 onwards and Phase 4 need.
+**Unlocks:** sketch constraints, the remaining feature payloads, joints. Everything Phase
+4 needs beyond the profile.
 
 ## Resolved since first writing
 
