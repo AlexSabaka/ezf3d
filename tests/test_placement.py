@@ -171,7 +171,7 @@ def test_the_sweep_distance_corroborates_from_the_other_stream(sucker, shared_do
     assert len(kept) < len(rows[0].frames), "the check has to eliminate something"
 
 
-def test_a_body_edge_names_the_sketch_curve_that_drew_it(placed, opened):
+def test_a_body_edge_names_the_sketch_curve_that_drew_it(sketch_links):
     """The link the reference graph does not carry, read rather than inferred.
 
     An ASM ``sketch_attrib_def`` hangs off a coedge and names a curve by the
@@ -180,13 +180,8 @@ def test_a_body_edge_names_the_sketch_curve_that_drew_it(placed, opened):
     sides, written by Fusion into two different streams.
     """
     total = 0
-    for child in opened.documents():
-        if child.design is None or not child.bodies:
-            continue
+    for child, edges in sketch_links:
         sketches = read_sketches(child.design)
-        if not len(sketches):
-            continue
-        edges = sketch_edges(child, sketches)
         total += len(edges)
         known = {sketch.oid for sketch in sketches}
         kind_of = {curve.oid: curve.kind for sketch in sketches for curve in sketch.curves}
@@ -197,7 +192,7 @@ def test_a_body_edge_names_the_sketch_curve_that_drew_it(placed, opened):
         pytest.skip("no body of this sample carries a sketch attribute")
 
 
-def test_a_closed_body_edge_names_a_circle(placed, opened):
+def test_a_closed_body_edge_names_a_circle(sketch_links):
     """The curve typing of 4.0b, checked against ASM topology.
 
     A B-Rep edge that closes on itself can only have come from a full circle,
@@ -211,17 +206,12 @@ def test_a_closed_body_edge_names_a_circle(placed, opened):
     about circles.
     """
     seen = 0
-    for child in opened.documents():
-        if child.design is None or not child.bodies:
-            continue
+    for child, edges in sketch_links:
         sketches = read_sketches(child.design)
-        if not len(sketches):
-            continue
         kind_of = {curve.oid: curve.kind for sketch in sketches for curve in sketch.curves}
-        for edge in sketch_edges(child, sketches):
-            closed = edge.start == edge.end
+        for edge in edges:
             seen += 1
-            if closed:
+            if edge.start == edge.end:
                 assert kind_of[edge.curve] == "Circle", f"{child.name}: {edge.curve}"
     if not seen:
         pytest.skip("no body of this sample carries a sketch attribute")
@@ -252,7 +242,7 @@ def test_a_curve_carries_the_identity_the_attribute_names_it_by(sucker, shared_d
     assert all(primary > 0 for primary, _ in keys)
 
 
-def test_a_shared_key_is_refused_rather_than_guessed(opened):
+def test_a_shared_key_is_refused_rather_than_guessed(sketch_links):
     """The correction that made the rest of this hold.
 
     Curve ids are scoped, not global: Robotic_Bhujha reuses 159 of its 331
@@ -261,14 +251,10 @@ def test_a_shared_key_is_refused_rather_than_guessed(opened):
     and it put 209 closed edges on lines. Refusing the shared ones takes that
     to nought — the disambiguation proving itself.
     """
-    for child in opened.documents():
-        if child.design is None or not child.bodies:
-            continue
+    for child, edges in sketch_links:
         sketches = read_sketches(child.design)
-        if not len(sketches):
-            continue
         shared = shared_keys(sketches)
-        named = {edge.curve for edge in sketch_edges(child, sketches)}
+        named = {edge.curve for edge in edges}
         contested = {
             curve.oid for sketch in sketches for curve in sketch.curves if curve.key in shared
         }

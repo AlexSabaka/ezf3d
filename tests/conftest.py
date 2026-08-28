@@ -251,3 +251,22 @@ def sketch_sets(opened, sample: Path, _design_cache, timelines):
     if not _design_cache[key]:
         pytest.skip("no design segment in this sample")
     return _design_cache[key]
+
+
+@pytest.fixture
+def sketch_links(opened, sample: Path, _design_cache, sketch_sets):
+    """``(child document, [SketchEdge])`` for every document with bodies.
+
+    Cached because reading the attributes walks every entity of every body,
+    and four tests want the same answer.
+    """
+    from ezf3d.model.placement import sketch_edges
+
+    key = ("sketch-edges", sample)
+    if key not in _design_cache:
+        _design_cache[key] = [
+            (child, sketch_edges(child, sketches))
+            for child, sketches in sketch_sets
+            if child.bodies
+        ]
+    return _design_cache[key]
