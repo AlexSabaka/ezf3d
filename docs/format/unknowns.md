@@ -120,12 +120,54 @@ different number of inputs. Anchoring on the revision string instead fixed it an
 reader from 7/8 to 214/214.
 
 **What is still open:** the same block has not been found on any other kind, and Fusion
-gives fillets, chamfers, revolves and combines operations too. The **profile** — which
-sketch an extrude consumes — is unreachable from anything: the feature's input list does
-not name it.
+gives fillets, chamfers, revolves and combines operations too.
 
-**What it blocks:** Phase 4. Of the five things needed to regenerate an extrude — profile,
-distance, taper, direction, operation — four are now readable and the profile is not.
+**Corrected.** This entry used to end by calling the **profile** unreachable, on the
+grounds that an extrude's input list never names its sketch. The premise is right — 0 of
+88 — and the conclusion was wrong. The reference runs the other way: each point and curve
+record names the sketch that owns it, and the sketch geometry reads. See
+[neutron-streams.md](neutron-streams.md#sketches). The error was looking for the link only
+where the feature record would have put it, and concluding from its absence there that it
+was absent everywhere.
+
+**What it blocks:** Phase 4 still, but less of it. Of the five things needed to regenerate
+an extrude — profile, distance, taper, direction, operation — four were readable and the
+profile now has a *shape*. What it does not have is a **place**; see below.
+
+## The sketch plane
+
+**Status: located by absence, and recoverable rather than blocking.**
+
+Sketch coordinates are two-dimensional in the sketch's own frame: `z` is zero for 1,905 of
+1,912 points and never exceeds 1.8e-15 in the rest. Placing a profile in 3D needs that
+frame, and the design stream does not appear to carry it. No orthonormal 3×3 basis occurs
+anywhere in the id range a sketch owns, and a sketch's `inputs` point at 30-byte tag
+objects rather than at a plane or a face.
+
+**The B-Rep can supply it.** ezf3d reads edges to within 2.2e-07 cm of their vertices, so a
+closed profile of known shape matches one planar face loop of the body its extrude
+produced, and that match yields the transform. Deriving the frame and checking the residual
+is a stronger statement than reading a field would have been — but it needs the curves
+typed and ordered into loops first, which is the open piece below.
+
+**Unlocks:** placing a profile, and with it the last of what an extrude needs.
+
+## Sketch curve types
+
+**Status: located, not typed.**
+
+Every sketch curve record is found and attributed — 1,331 of them across the samples — but
+what *kind* of curve it is is not read. Record size separates them cleanly inside one
+document: 347 for a circle, 356 for a line, 367 for an arc and 805/815 for a spline in
+SUCKER, corroborated by which sketches carry a `Diameter Dimension`. That is a lead and not
+a rule: this same document established directly above that record size classifies nothing
+*across* documents, and these sizes move with the subsystem revision.
+
+The discriminating field has not been found. Until it is, a `Curve` carries its size and no
+type.
+
+**Unlocks:** closing a sketch's curves into loops, which is the profile; and with the
+profile, the plane.
 
 ## Spline surface identification
 

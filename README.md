@@ -53,6 +53,7 @@ ezf3d ogs     <file> [--verify]   # what Fusion cached, and how far it agrees wi
 ezf3d components <file>           # the component tree, its bodies, and its materials
 ezf3d params  <file>              # every parameter: name, role, unit, expression, value
 ezf3d timeline <file> [--inputs]  # the features in run order, what each does and drives
+ezf3d sketches <file> [--points]  # every sketch: its points, curves and dimensions
 ```
 
 `mesh`, `export` and `render` take `--source asm | ogs | auto`: tessellate the surfaces,
@@ -117,8 +118,7 @@ Full notes live in [`docs/format/`](docs/format/).
 - **Phase 2.5 — the OGS cached-mesh fast path.** ✅ the scene graph and buffer
   descriptors, cross-validated against the ASM tessellation — which is how a
   hole-triangulation bug and a stale-loop bug were found.
-- **Phase 3 — design semantics.** Parameters, sketches, feature timeline, component
-  tree, joints, materials. In progress: the meta stream is decoded and its object index
+- **Phase 3 — design semantics.** ✅ the meta stream is decoded and its object index
   makes the design payload randomly addressable — 14,843 objects in one sample, each with
   a known offset and extent. `ezf3d components` reads the component tree, naming every
   body in `Breps.BlobParts` exactly once; `ezf3d params` reads all 1,193 parameters of the
@@ -129,7 +129,15 @@ Full notes live in [`docs/format/`](docs/format/).
   drives — 478 of 686 features across the samples carry at least one parameter, and every
   one of 214 extrudes says whether it joins, cuts or makes a body.
 - **Phase 4 — transpile.** Fusion feature graph → `build123d` source → headless OCC
-  regeneration, verified by geometric diff against the original bodies.
+  regeneration, verified by geometric diff against the original bodies. In progress:
+  `ezf3d sketches` reads the profile. An extrude never names its sketch, but every point
+  and curve record names the sketch that owns *it* — which places 3,217 of 3,221 entities
+  across the samples and reaches every sketch each design has. The reading is checked
+  against the design's own parameters: a `Linear Dimension` must be the distance between
+  two of its sketch's points, and it is for 155 of 179. Still missing are the sketch
+  *plane*, which the design stream does not appear to carry and which the B-Rep should be
+  able to supply, and the curve *types*, which record size hints at but does not settle.
+  `build123d` emission waits on both.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
   linear static / modal / thermal.
 

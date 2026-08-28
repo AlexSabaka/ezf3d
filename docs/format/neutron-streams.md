@@ -453,6 +453,80 @@ Two of the package's members declare no table and hold no parameter-like string 
 Both are documents assembled out of imported bodies, so "none" is the honest answer
 rather than a failed search.
 
+### Sketches
+
+An extrude never names its sketch — 0 of 88 across the samples reach one through
+`inputs`. The reference runs the other way: **each point and curve names the sketch that
+owns it.**
+
+Unlike a feature's operation code, an entity record says what it is. The kind is a `str8`
+key on the wire:
+
+```
+str8 EntityGenesis
+str8 IntrinsicMetaTypeuint64
+str8 pt_tag | crv_primary_id     what this record is
+str8 IntrinsicMetaTypeuint64     <- the anchor
+...
+f64 x, f64 y, f64 z              at +27 past the anchor, for a point
+...
+0x01 <u64 owner> 0x00 0x00       the sketch's geometry container
+str8 revision
+```
+
+Two things are measured from a *string* rather than from the record's start, because the
+three point shapes in the samples — 169, 221 and 225 bytes over four subsystem
+revisions — begin differently:
+
+- the coordinates sit **27 bytes past the type word following the key**, one offset for
+  all three shapes, which is what says it is a field and not an alignment;
+- the owner reference sits **immediately before a trailing revision string**, and the
+  sketch feature follows the container it names by three ids, four in a handful.
+
+A record may nest a *second* `EntityGenesis` block — a spline carrying its own dimension
+does — so every revision-shaped string is tried and the first whose preceding reference
+lands on a sketch wins. Anchoring on the last one loses exactly those splines, which is
+the trap the extrude settings sprang in 3.6b.
+
+| design | sketches | points | curves | entities placed |
+|---|---|---|---|---|
+| SUCKER | 8 | 231 | 163 | 394 / 394 |
+| Robotic_Bhujha | 82 | 874 | 606 | 1480 / 1482 |
+| Focuser Mk1 | 39 | 781 | 562 | 1343 / 1345 |
+
+Every sketch each design has is reached, and no record reaches two. Positional
+attribution — the rule [parameters](#what-a-feature-drives) use — was tried first and
+topped out at 95 %; it disagrees with what the file says on 145 entities, so reading the
+reference is not a decorative way of computing a bisect.
+
+**A sketch owns records written before its own feature.** The container precedes the
+feature by three ids, so 130 entities across the samples have a *lower* id than the
+sketch that owns them. The obvious invariant is false, and a reader that assumed it
+would drop them silently.
+
+What checks the reading is the design's own parameters. A sketch's `Linear Dimension-N`
+must be the distance between two of that sketch's points, and it is for **155 of 179** to
+within 1e-7 cm — two facts written into different objects and reached by different scans.
+SUCKER's sketch #31 is the case small enough to check by hand: four corners at
+`(±1, −2)` and `(±1, −1.95)`, and a lone `Linear Dimension-2` reading `0.5 mm`, which is
+exactly the 0.05 cm between them. The 24 misses measure a point against a *line*, which
+is not read yet.
+
+**Coordinates are two-dimensional.** `z` is zero for 1,905 of 1,912 points and never
+larger than 1.8e-15 in the rest, which is rounding rather than depth. The frame that
+would place a profile in 3D is not in the design stream — see
+[unknowns.md](unknowns.md#the-sketch-plane).
+
+Curves are located but **not typed**. Record size separates them cleanly inside one
+document — 347 for a circle, 356 for a line, 367 for an arc, 805/815 for a spline in
+SUCKER, corroborated by which sketches carry a `Diameter Dimension` — but 3.6b
+established that record size classifies nothing across documents, and these sizes move
+with the revision. So the size is carried as the lead it is.
+
+A registry-less `.f3z` member can hold entity records and no sketch object at all;
+Roundified Cray keeps 51. They are counted rather than dropped, so "no sketches" does not
+read as "no sketch geometry".
+
 ### Materials
 
 The design stream stores *assignments*, not materials. The materials themselves live in
