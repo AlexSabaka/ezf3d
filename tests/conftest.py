@@ -232,3 +232,22 @@ def timelines(opened, sample: Path, _design_cache):
     if not _design_cache[key]:
         pytest.skip("no design segment in this sample")
     return _design_cache[key]
+
+
+@pytest.fixture
+def sketch_sets(opened, sample: Path, _design_cache, timelines):
+    """``(child document, Sketches)`` for every document with a design.
+
+    Built from the cached timeline rather than reading one of its own, which
+    is what keeps this off the inner loop's budget.
+    """
+    from ezf3d.model.sketch import read_sketches
+
+    key = ("sketches", sample)
+    if key not in _design_cache:
+        _design_cache[key] = [
+            (child, read_sketches(child.design, timeline)) for child, timeline in timelines
+        ]
+    if not _design_cache[key]:
+        pytest.skip("no design segment in this sample")
+    return _design_cache[key]
