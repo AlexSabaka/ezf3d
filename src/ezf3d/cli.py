@@ -1215,9 +1215,14 @@ def sketches(
         return
 
     for row in rows:
+        census = ", ".join(
+            f"{n} {kind.lower()}{'s' if n != 1 else ''}" for kind, n in sorted(row.kinds.items())
+        )
         console.print(
             f"[bold]{row.document}[/] [dim]— {len(row.sketches)} sketches, "
-            f"{row.points} points, {row.curves} curves[/]"
+            f"{row.points} points, {row.curves} curves"
+            + (f" ({census})" if census else "")
+            + f", {row.loops} closed loops[/]"
         )
         if not row.sketches:
             # A registry-less `.f3z` member has entity records and no feature
@@ -1237,7 +1242,8 @@ def sketches(
             ("component", "left"),
             ("id", "right"),
             ("points", "right"),
-            ("curves", "right"),
+            ("curves", "left"),
+            ("loops", "right"),
             ("extent cm", "left"),
             ("dims", "right"),
         ):
@@ -1250,7 +1256,8 @@ def sketches(
                 sketch.component,
                 str(sketch.oid),
                 str(sketch.points),
-                str(sketch.curves),
+                _kinds_cell(sketch),
+                str(len(sketch.loops)) if sketch.loops else "[dim]—[/]",
                 _extent_cell(sketch.extent),
                 _dimension_cell(sketch),
             )
@@ -1268,6 +1275,20 @@ def sketches(
         # The parameters are read from the table and the points from the
         # geometry records, so agreement is a cross-check rather than a
         # restatement of one reading.
+        # An arc names a centre and two ends, so its stored radius and span are
+        # predicted by its own points.  Record size predicts neither, which is
+        # what makes this a check on the typing rather than a restatement.
+        good = sum(sketch.geometry_checked for sketch in row.sketches)
+        wrong = sum(len(sketch.geometry_disagreeing) for sketch in row.sketches)
+        if good or wrong:
+            console.print(
+                f"[{'green' if not wrong else 'yellow'}]{good}[/] of {good + wrong} circles "
+                f"and arcs agree with the geometry their own points describe"
+            )
+        if row.loose:
+            console.print(
+                f"[dim]{row.loose} curves are in no closed loop — open chains and junctions[/]"
+            )
         checked = sum(sketch.dimensions_checked for sketch in row.sketches)
         missing = sum(len(sketch.dimensions_missing) for sketch in row.sketches)
         if checked or missing:
@@ -1285,6 +1306,13 @@ def sketches(
         if row.unowned:
             console.print(f"[yellow]{row.unowned}[/] entity records name no sketch")
         console.print()
+
+
+def _kinds_cell(sketch: Any) -> str:
+    """A sketch's curves as ``3 circles, 8 lines``, or just the count."""
+    if not sketch.kinds:
+        return str(sketch.curves)
+    return " ".join(f"{n}{kind[0].lower()}" for kind, n in sorted(sketch.kinds.items()))
 
 
 def _dimension_cell(sketch: Any) -> str:

@@ -225,6 +225,8 @@ def sketch_infos(document: Document) -> list[SketchesInfo]:
         entries = []
         for sketch in sketches:
             checked, missing = sketch.dimension_check()
+            good, bad = sketch.curve_check()
+            loops = sketch.loops()
             entries.append(
                 SketchInfo(
                     oid=sketch.oid,
@@ -238,6 +240,11 @@ def sketch_infos(document: Document) -> list[SketchesInfo]:
                     parameters=[_parameter_info(p, design) for p in sketch.parameters],
                     dimensions_checked=checked,
                     dimensions_missing=list(missing),
+                    kinds=dict(sorted(sketch.kinds().items())),
+                    loops=[list(loop.curves) for loop in loops],
+                    loose=sketch.loose(),
+                    geometry_checked=good,
+                    geometry_disagreeing=list(bad),
                 )
             )
         rows.append(
@@ -246,6 +253,9 @@ def sketch_infos(document: Document) -> list[SketchesInfo]:
                 sketches=entries,
                 points=sketches.points(),
                 curves=sketches.curves(),
+                kinds=dict(sorted(sketches.kinds().items())),
+                loops=sum(len(row.loops) for row in entries),
+                loose=sum(row.loose for row in entries),
                 unowned=sketches.unowned,
             )
         )

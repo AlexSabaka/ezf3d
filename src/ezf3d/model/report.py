@@ -210,6 +210,20 @@ class SketchInfo(BaseModel):
     #: sketch's own points, and the roles that could not be.
     dimensions_checked: int = 0
     dimensions_missing: list[str] = Field(default_factory=list)
+    #: How many circles, lines and arcs — by how many points each curve
+    #: references, not by how large its record is.
+    kinds: dict[str, int] = Field(default_factory=dict)
+    #: Closed chains of curves: the profiles an extrude could sweep. Each
+    #: entry is the curve ids in the order they chain; a circle is a loop of
+    #: one.
+    loops: list[list[int]] = Field(default_factory=list)
+    #: Curves no closed loop uses — open chains and junctions. Ordinary in a
+    #: sketch, and counted rather than forced closed.
+    loose: int = 0
+    #: Circles and arcs whose stored radius and span agree with the geometry
+    #: their own points describe, and the ids of any that do not.
+    geometry_checked: int = 0
+    geometry_disagreeing: list[int] = Field(default_factory=list)
 
 
 class SketchesInfo(BaseModel):
@@ -219,6 +233,11 @@ class SketchesInfo(BaseModel):
     sketches: list[SketchInfo] = Field(default_factory=list)
     points: int = 0
     curves: int = 0
+    #: Curve kinds over the whole document.
+    kinds: dict[str, int] = Field(default_factory=dict)
+    #: Closed loops over the whole document, and curves in none of them.
+    loops: int = 0
+    loose: int = 0
     #: Entity records whose owner reference reached no sketch. Counted, not
     #: dropped: 4 across the four samples.
     unowned: int = 0
