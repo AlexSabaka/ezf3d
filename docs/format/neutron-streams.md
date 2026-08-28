@@ -609,6 +609,20 @@ every instance: SUCKER's slot lands in 8 distinct places and that design's
 `R-Pattern1-vCount` is 8. The candidates *are* the pattern instances, and geometry does
 not say which is the seed. `ezf3d sketches --place` reports the set.
 
+#### The curve identity, and the edge that names it
+
+A curve record's `crv_primary_id` and `crv_secondary_id` are not only keys marking where
+its fields sit — the `u64` after each one's type word is the curve's **identity**. The ASM
+side names it: a coedge carrying a `sketch_attrib_def` attribute holds six integers whose
+first two are exactly that pair. So a B-Rep edge says which sketch curve drew it, without
+any geometric matching at all.
+
+That reaches sketches shape matching cannot — 73 of 130 against 49 — because it survives
+the fillets and cuts that destroy an outline. **But the ids are scoped, not global**:
+Robotic_Bhujha reuses 159 of its 331 keys, one across five circles. Only unambiguous keys
+are used; see [unknowns.md](unknowns.md#asm-tag-attributes) for what the scope might be and
+why the restriction is not optional.
+
 | design | sketches | placed | planar faces searched |
 |---|---|---|---|
 | SUCKER | 8 | 5 | 1,178 |

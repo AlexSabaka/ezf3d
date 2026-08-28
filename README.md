@@ -142,7 +142,12 @@ Full notes live in [`docs/format/`](docs/format/).
   frame as a free affine map whose axes come out orthonormal without being asked to,
   worst departure 6.9e-13. What it cannot do is pick one: a design repeats its own shapes,
   so a profile fits at every instance of a patterned feature, and nothing in the geometry
-  marks the seed. `build123d` emission waits on that.
+  marks the seed. A second, non-geometric link goes further: an ASM `sketch_attrib_def`
+  names the sketch curve a B-Rep edge came from, by the identity the curve record itself
+  carries — 2,714 edges reaching 73 of 130 sketches, and every closed edge naming a circle
+  where a global read had 209 of them naming lines. Those ids turn out to be scoped rather
+  than global, and finding the scope is now the single most valuable thing left.
+  `build123d` emission waits on it.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
   linear static / modal / thermal.
 

@@ -282,13 +282,40 @@ silently absorbed.
 
 ## ASM tag attributes
 
-**Status:** located, not decoded.
+**Status: the sketch attribute is decoded; its id scope is not.**
 
-`generic_tag_attrib_def` attributes carry integer tags that persist across rebuilds. The
-timeline almost certainly addresses individual faces and edges through them.
+`ATTRIB_CUSTOM` records name a definition and carry a payload. Across SUCKER's twelve
+bodies there are four: `generic_tag_attrib_def` (5,629), `sketch_attrib_def` (1,163),
+`Timestamp_attrib_def` (68) and `FPM_tracked_attrib_def` (63).
 
-**Unlocks:** resolving a feature reference ("fillet these edges") to actual topology —
-required for faithful transpilation in Phase 4.
+**`sketch_attrib_def` is the link the design stream does not carry.** It hangs off a
+**coedge** and holds a string of six integers — `"1563 1589 1 0 1 1"` — whose first two are
+the `(crv_primary_id, crv_secondary_id)` that the sketch curve record itself holds. So a
+B-Rep edge says which sketch curve drew it, by a key written into two different streams.
+See [neutron-streams.md](neutron-streams.md#sketches).
+
+**The key is scoped, not global**, and that is the open part. SUCKER's 163 curves have
+distinct keys and all 1,163 of its attributes resolve; the fan's 3 do too. Robotic_Bhujha
+reuses **159 of its 331** keys — one belongs to five circles at once — and Focuser Mk1
+reuses 162 of 351. The payload's other four columns do not help: two are small counters,
+one is a sense flag, and one is always zero. Nothing in the attribute names a sketch.
+
+Reading it globally therefore attributes an edge to whichever curve a dictionary happened
+to keep. That is not a hypothetical: a B-Rep edge that closes on itself can only have come
+from a full circle, and read globally **209 closed edges named lines**. Restricted to keys
+that belong to exactly one curve, **325 of 325 name circles** — the curve kind coming from
+the design stream and the closure from vertex identity in the ASM stream. The correction
+proving itself is the reason the restriction is in the code rather than a note.
+
+`ezf3d` returns only the unambiguous ones: 2,714 edges reaching 73 of 130 sketches, against
+the 49 that shape matching reaches.
+
+**Unlocks:** finding the scope would tie every feature to its own topology, and with it
+settle both open halves of [the sketch plane](#the-sketch-plane) — which instance a sketch
+sits on, and which loop an extrude sweeps. It is the single most valuable thing left.
+
+`generic_tag_attrib_def` is the larger population and is still unread. It is what the
+timeline most likely addresses faces and edges through.
 
 ### Material assignments
 
