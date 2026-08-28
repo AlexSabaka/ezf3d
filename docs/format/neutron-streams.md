@@ -512,7 +512,7 @@ SUCKER's sketch #31 is the case small enough to check by hand: four corners at
 exactly the 0.05 cm between them. The 24 misses measure a point against a *line*, which
 is not read yet.
 
-**Coordinates are two-dimensional.** `z` is zero for 1,905 of 1,912 points and never
+**Coordinates are two-dimensional.** `z` is zero for 1,876 of 1,912 points and never
 larger than 1.8e-15 in the rest, which is rounding rather than depth. The frame that
 would place a profile in 3D is not in the design stream — see
 [unknowns.md](unknowns.md#the-sketch-plane).

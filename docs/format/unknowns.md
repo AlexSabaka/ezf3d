@@ -141,7 +141,7 @@ profile now has a *shape*. What it does not have is a **place**; see below.
 
 **Status: located by absence, and recoverable rather than blocking.**
 
-Sketch coordinates are two-dimensional in the sketch's own frame: `z` is zero for 1,905 of
+Sketch coordinates are two-dimensional in the sketch's own frame: `z` is zero for 1,876 of
 1,912 points and never exceeds 1.8e-15 in the rest. Placing a profile in 3D needs that
 frame, and the design stream does not appear to carry it. No orthonormal 3×3 basis occurs
 anywhere in the id range a sketch owns, and a sketch's `inputs` point at 30-byte tag

@@ -36,7 +36,7 @@ loses exactly those splines, which is the same trap the extrude settings
 sprang in 3.6b.
 
 **Coordinates are two-dimensional**, in the sketch's own frame: ``z`` is zero
-for 1,905 of 1,912 points and never larger than 1.8e-15 in the rest, which is
+for 1,876 of 1,912 points and never larger than 1.8e-15 in the rest, which is
 rounding rather than depth.  The frame itself is *not* in the design stream --
 see :doc:`unknowns </format/unknowns>`.
 
