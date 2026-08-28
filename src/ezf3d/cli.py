@@ -1195,6 +1195,13 @@ def sketches(
     points: Annotated[
         bool, typer.Option("--points", help="List every point of every sketch shown.")
     ] = False,
+    place: Annotated[
+        bool,
+        typer.Option(
+            "--place",
+            help="Recover where each sketch sits, by matching its loops to the bodies.",
+        ),
+    ] = False,
     limit: Annotated[
         int, typer.Option("--limit", help="Rows to print per document; 0 for all.")
     ] = 40,
@@ -1202,7 +1209,7 @@ def sketches(
     """The design's sketches: their points, curves and driving dimensions."""
     try:
         with readfile(path) as doc:
-            rows = sketch_infos(doc)
+            rows = sketch_infos(doc, place=place)
             if not rows:
                 raise Ef3dError("this document carries no design segment")
     except READ_ERRORS as exc:
@@ -1289,6 +1296,8 @@ def sketches(
             console.print(
                 f"[dim]{row.loose} curves are in no closed loop — open chains and junctions[/]"
             )
+        if place:
+            _print_placements(row)
         checked = sum(sketch.dimensions_checked for sketch in row.sketches)
         missing = sum(len(sketch.dimensions_missing) for sketch in row.sketches)
         if checked or missing:
@@ -1306,6 +1315,64 @@ def sketches(
         if row.unowned:
             console.print(f"[yellow]{row.unowned}[/] entity records name no sketch")
         console.print()
+
+
+def _print_placements(row: Any) -> None:
+    """Where each sketch could sit, and how many places that is.
+
+    The orthonormality column is the evidence, not decoration: the fit solves
+    for two free 3-vectors and never requires them to be perpendicular or unit
+    length, so a number at machine precision is the reading confirming itself.
+    """
+    if not row.placements:
+        console.print(
+            f"[dim]no sketch loop matches a planar face of the {row.planar_faces} "
+            f"this document has[/]\n"
+        )
+        return
+    table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+    for column, justify in (
+        ("sketch", "right"),
+        ("loop", "left"),
+        ("places", "right"),
+        ("origin cm", "left"),
+        ("normal", "left"),
+        ("residual", "right"),
+        ("orthonormal", "right"),
+    ):
+        table.add_column(column, justify=justify, overflow="fold")
+    for found in row.placements:
+        table.add_row(
+            str(found.sketch),
+            f"{len(found.loop)} curves",
+            "[green]1[/]" if found.candidates == 1 else str(found.candidates),
+            _vector(found.origin),
+            _vector(found.normal),
+            f"{found.residual:.1e}",
+            f"{found.orthonormality:.1e}",
+        )
+    console.print(table)
+    unique = sum(1 for found in row.placements if found.candidates == 1)
+    console.print(
+        f"[green]{unique}[/] of {len(row.placements)} loops land in exactly one place; "
+        f"{row.placed} sketches reached, {row.unplaced} matched no face"
+    )
+    if unique < len(row.placements):
+        console.print(
+            "[dim]more than one place is the design repeating itself — a patterned "
+            "feature puts congruent faces at every instance[/]"
+        )
+
+
+#: Below this a fitted coordinate is rounding, not a position.  The fits land
+#: at 1e-15, so showing the noise would bury the number that matters.
+_SNAP = 1e-9
+
+
+def _vector(values: list[float]) -> str:
+    if len(values) != 3:
+        return "[dim]—[/]"
+    return "(" + ", ".join(f"{0.0 if abs(v) < _SNAP else v:g}" for v in values) + ")"
 
 
 def _kinds_cell(sketch: Any) -> str:

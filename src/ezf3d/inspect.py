@@ -16,6 +16,7 @@ from ezf3d.model.design import read_design
 from ezf3d.model.document import Asset, Body, Document
 from ezf3d.model.materials import Materials, read_assignments
 from ezf3d.model.parameters import read_parameters
+from ezf3d.model.placement import place_sketches
 from ezf3d.model.report import (
     AssetInfo,
     BodyInfo,
@@ -28,6 +29,7 @@ from ezf3d.model.report import (
     PackageMember,
     ParameterInfo,
     ParametersInfo,
+    PlacementInfo,
     SegmentInfo,
     SketchesInfo,
     SketchInfo,
@@ -205,7 +207,7 @@ def timeline_infos(document: Document) -> list[TimelineInfo]:
     return rows
 
 
-def sketch_infos(document: Document) -> list[SketchesInfo]:
+def sketch_infos(document: Document, *, place: bool = False) -> list[SketchesInfo]:
     """One :class:`SketchesInfo` per document that carries a design segment.
 
     A sketch's geometry is reached from the geometry, not from the timeline:
@@ -221,6 +223,8 @@ def sketch_infos(document: Document) -> list[SketchesInfo]:
         parameters = read_parameters(segment)
         timeline = read_timeline(segment, parameters)
         sketches = read_sketches(segment, timeline)
+        # Placement parses every body, so it is asked for rather than assumed.
+        located = place_sketches(child, sketches) if place else None
         design = read_design(segment) if len(sketches) else None
         entries = []
         for sketch in sketches:
@@ -257,9 +261,28 @@ def sketch_infos(document: Document) -> list[SketchesInfo]:
                 loops=sum(len(row.loops) for row in entries),
                 loose=sum(row.loose for row in entries),
                 unowned=sketches.unowned,
+                placements=[_placement_info(row) for row in located] if located else [],
+                placed=located.sketches_placed() if located else 0,
+                unplaced=located.unplaced if located else 0,
+                planar_faces=located.faces if located else 0,
             )
         )
     return rows
+
+
+def _placement_info(row) -> PlacementInfo:
+    frame = row.best
+    return PlacementInfo(
+        sketch=row.sketch,
+        loop=list(row.loop),
+        candidates=len(row.frames),
+        origin=list(frame.origin) if frame else [],
+        u_dir=list(frame.u_dir) if frame else [],
+        v_dir=list(frame.v_dir) if frame else [],
+        normal=list(frame.normal) if frame else [],
+        residual=frame.residual if frame else 0.0,
+        orthonormality=frame.orthonormality if frame else 0.0,
+    )
 
 
 def segment_info(document: Document, asset: Asset) -> list[SegmentInfo]:

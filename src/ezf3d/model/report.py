@@ -226,6 +226,29 @@ class SketchInfo(BaseModel):
     geometry_disagreeing: list[int] = Field(default_factory=list)
 
 
+class PlacementInfo(BaseModel):
+    """Where one loop of one sketch could sit in space."""
+
+    sketch: int
+    #: Curve ids of the loop that matched a planar face.
+    loop: list[int] = Field(default_factory=list)
+    #: How many distinct places the profile could land. One is a placement;
+    #: more is the design's own repetition — a patterned feature puts congruent
+    #: faces at every instance, and nothing in the geometry says which is the
+    #: seed.
+    candidates: int = 0
+    #: The tightest fit's frame, in centimetres: origin, then the two axes.
+    origin: list[float] = Field(default_factory=list)
+    u_dir: list[float] = Field(default_factory=list)
+    v_dir: list[float] = Field(default_factory=list)
+    normal: list[float] = Field(default_factory=list)
+    #: Worst distance from a placed point to the vertex it matched.
+    residual: float = 0.0
+    #: Worst departure of the fitted axes from orthonormal. The solve does not
+    #: require it, so a small number here is evidence rather than bookkeeping.
+    orthonormality: float = 0.0
+
+
 class SketchesInfo(BaseModel):
     """Payload row of ``ezf3d sketches`` — one per document with a design."""
 
@@ -241,6 +264,13 @@ class SketchesInfo(BaseModel):
     #: Entity records whose owner reference reached no sketch. Counted, not
     #: dropped: 4 across the four samples.
     unowned: int = 0
+    #: Where each sketch could sit, when asked for. Empty unless placement ran.
+    placements: list[PlacementInfo] = Field(default_factory=list)
+    #: Sketches placement reached, and those whose loops matched no face.
+    placed: int = 0
+    unplaced: int = 0
+    #: Planar face loops the search compared against.
+    planar_faces: int = 0
 
 
 class AssetInfo(BaseModel):
