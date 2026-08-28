@@ -444,6 +444,30 @@ def test_sketches_points_view_lists_coordinates(sucker):
     assert "(0, 0)" in out
 
 
+def test_sketches_place_view_reports_frames_and_their_evidence(sucker):
+    data = payload("sketches", str(sucker), "--place")["data"]
+    (document,) = data["documents"]
+    assert document["planar_faces"] == 1178
+    assert document["placed"] == 5 and document["unplaced"] == 3
+    assert document["placements"]
+    for found in document["placements"]:
+        # The solve never asks for orthonormal axes; that it gets them is the check.
+        assert found["orthonormality"] < 1e-9
+        assert found["residual"] < 1e-7
+        assert len(found["normal"]) == 3
+    slot = next(f for f in document["placements"] if f["sketch"] == 10251)
+    assert slot["normal"] == pytest.approx([0.0, 0.0, 1.0], abs=1e-9)
+    assert slot["candidates"] > 1
+
+
+def test_sketches_does_not_place_unless_asked(sucker):
+    """Placement parses every body, so it stays off the default path."""
+    data = payload("sketches", str(sucker))["data"]
+    (document,) = data["documents"]
+    assert document["placements"] == []
+    assert (document["placed"], document["unplaced"], document["planar_faces"]) == (0, 0, 0)
+
+
 def test_sketches_counts_geometry_a_member_has_no_sketch_for(focuser):
     """A registry-less member holds entity records and no feature to own them."""
     data = payload("sketches", str(focuser))["data"]
