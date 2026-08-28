@@ -420,6 +420,23 @@ def test_sketches_reports_the_profile_geometry(sucker):
     assert {(-1.0, -2.0), (1.0, -2.0), (-1.0, -1.95), (1.0, -1.95)} <= corners
 
 
+def test_sketches_types_its_curves_and_closes_its_loops(sucker):
+    data = payload("sketches", str(sucker))["data"]
+    (document,) = data["documents"]
+    assert document["kinds"] == {"Arc": 54, "Circle": 3, "Line": 106}
+    assert sum(document["kinds"].values()) == document["curves"] == 163
+    assert (document["loops"], document["loose"]) == (28, 44)
+    # The slot sketch: two loops, the outer rectangle and the slot itself.
+    slot = next(row for row in document["sketches"] if row["oid"] == 10251)
+    assert {frozenset(loop) for loop in slot["loops"]} == {
+        frozenset({10299, 10302, 10305, 10306}),
+        frozenset({10315, 10316, 10317, 10318}),
+    }
+    # Every circle and arc agreed with the geometry its own points describe.
+    assert not any(row["geometry_disagreeing"] for row in document["sketches"])
+    assert sum(row["geometry_checked"] for row in document["sketches"]) == 57
+
+
 def test_sketches_points_view_lists_coordinates(sucker):
     code, out = invoke("sketches", str(sucker), "--points", "--limit", "2")
     assert code == 0

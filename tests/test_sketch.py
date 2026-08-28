@@ -19,7 +19,10 @@ import pytest
 from ezf3d.model.sketch import (
     COORDINATE_GAP,
     CURVE_KINDS,
+    ENDPOINT_GAP,
+    FULL_TURN,
     OWNER_REACH,
+    Curve,
     Point,
     Sketch,
     Sketches,
@@ -30,6 +33,12 @@ from ezf3d.model.sketch import (
 #: end. Its four corners, in centimetres, as Fusion's internal units store them.
 SUCKER_SLOT = 10251
 SUCKER_SLOT_CORNERS = {(-1.0, -2.0), (1.0, -2.0), (-1.0, -1.95), (1.0, -1.95)}
+
+#: The two loops that sketch reads as: the outer rectangle and the slot itself.
+SUCKER_SLOT_LOOPS = {
+    frozenset({10299, 10302, 10305, 10306}),
+    frozenset({10315, 10316, 10317, 10318}),
+}
 
 
 def test_every_entity_belongs_to_exactly_one_sketch(sketch_sets):
@@ -281,6 +290,151 @@ def test_every_curve_is_typed_by_its_references_not_its_size(sucker, shared_docu
     # One size does not decide one kind: the same count appears at several sizes.
     by_kind = {kind: {c.size for c in curves if c.kind == kind} for kind in CURVE_KINDS.values()}
     assert by_kind["Arc"] & {367}, by_kind
+
+
+def test_a_curves_geometry_agrees_with_the_points_it_names(sketch_sets):
+    """The check that says the typing is read, not guessed from record size.
+
+    An arc names a centre and two ends, so its stored radius must be the
+    distance between them and its stored span the angle they subtend. A circle
+    must store a full turn. Record size predicts none of that, so agreement
+    here cannot come from having grouped the records by size.
+    """
+    for child, sketches in sketch_sets:
+        good, bad = sketches.curve_check()
+        if not good and not bad:
+            continue
+        assert not bad, f"{child.name}: {len(bad)} curves disagree with their points: {bad[:5]}"
+        assert good > 0
+
+
+def test_a_circle_stores_a_full_turn(sketch_sets):
+    """163 of them across the samples, and it is exactly 2pi in every one."""
+    seen = 0
+    for child, sketches in sketch_sets:
+        for sketch in sketches:
+            for curve in sketch.curves:
+                if curve.kind != "Circle":
+                    continue
+                seen += 1
+                assert curve.span == pytest.approx(FULL_TURN, abs=1e-9), f"{child.name}"
+                assert curve.radius > 0.0, f"{child.name}: {curve.oid}"
+    if not seen:
+        pytest.skip("no circles in this sample")
+
+
+def test_a_line_carries_no_radius_and_a_unit_span(sketch_sets):
+    """+/-1 in all 889. The sign is carried, not interpreted."""
+    for child, sketches in sketch_sets:
+        for sketch in sketches:
+            for curve in sketch.curves:
+                if curve.kind != "Line":
+                    continue
+                assert curve.radius == 0.0, f"{child.name}: {curve.oid}"
+                assert abs(curve.span) == pytest.approx(1.0, abs=1e-9), f"{child.name}"
+
+
+def test_a_curve_only_ever_names_its_own_sketchs_points(sketch_sets):
+    """What bounds the walk: a reference outside the point set ends the block.
+
+    Without it the walk would run on into whatever follows and the count —
+    which *is* the kind — would be wrong.
+    """
+    for child, sketches in sketch_sets:
+        for sketch in sketches:
+            owned = {point.oid for point in sketch.points}
+            for curve in sketch.curves:
+                assert set(curve.points) <= owned, f"{child.name}: {curve.oid}"
+
+
+def test_the_reference_count_is_the_kind(sketch_sets):
+    for _, sketches in sketch_sets:
+        for sketch in sketches:
+            for curve in sketch.curves:
+                assert CURVE_KINDS[len(curve.points)] == curve.kind
+
+
+def test_one_record_size_does_not_decide_one_kind(sketch_sets):
+    """Size is the lead that found the field, and must not become the rule.
+
+    Within a document sizes do separate the kinds, so this asserts the weaker
+    and more useful thing: the reader never consults size, and the same kind
+    turns up at several sizes across the corpus.
+    """
+    by_kind: dict[str, set[int]] = {}
+    for _, sketches in sketch_sets:
+        for sketch in sketches:
+            for curve in sketch.curves:
+                by_kind.setdefault(curve.kind, set()).add(curve.size)
+    if not by_kind:
+        pytest.skip("no curves in this sample")
+    assert set(by_kind) <= set(CURVE_KINDS.values())
+
+
+def test_every_loop_closes_and_uses_each_curve_once(sketch_sets):
+    for child, sketches in sketch_sets:
+        for sketch in sketches:
+            by_id = {curve.oid: curve for curve in sketch.curves}
+            for loop in sketch.loops():
+                assert len(set(loop.curves)) == len(loop.curves), f"{child.name}"
+                if len(loop.curves) == 1 and by_id[loop.curves[0]].kind == "Circle":
+                    continue
+                assert len(loop.points) == len(loop.curves), f"{child.name}: {loop}"
+                # Consecutive curves must share the point between them.
+                for index, oid in enumerate(loop.curves):
+                    ends = by_id[oid].ends
+                    assert ends is not None
+                    nxt = loop.points[(index + 1) % len(loop.points)]
+                    shared = {loop.points[index], nxt}
+                    assert set(ends) == shared, f"{child.name}: {loop} broke at {oid}"
+
+
+def test_loops_and_loose_curves_account_for_every_curve(sketch_sets):
+    """Nothing is silently dropped between the two."""
+    for child, sketches in sketch_sets:
+        for sketch in sketches:
+            used = {oid for loop in sketch.loops() for oid in loop.curves}
+            assert len(used) + sketch.loose() == len(sketch.curves), child.name
+
+
+def test_the_sucker_slot_reads_as_two_loops(sucker, shared_document):
+    """The rectangle and the slot — the case checkable by eye.
+
+    Eight line records for what looks like four edges was an open question
+    when the points landed. It is two loops, not duplicated edges.
+    """
+    child = shared_document(sucker)
+    slot = read_sketches(child.design).by_id()[SUCKER_SLOT]
+    assert {frozenset(loop.curves) for loop in slot.loops()} == SUCKER_SLOT_LOOPS
+    assert slot.kinds() == {"Line": 8}
+    assert slot.loose() == 0
+
+
+def test_a_sketch_may_be_a_graph_rather_than_an_outline(sketch_sets):
+    """Loose curves are ordinary, and reported rather than forced closed.
+
+    480 of the samples' 1,334 curves sit in no closed loop. A reader that
+    demanded every sketch be one profile would be wrong about most of them.
+    """
+    loose = sum(sketch.loose() for _, sketches in sketch_sets for sketch in sketches)
+    curves = sum(len(sketch.curves) for _, sketches in sketch_sets for sketch in sketches)
+    if not curves:
+        pytest.skip("no curves in this sample")
+    assert 0 <= loose < curves
+
+
+def test_an_unreadable_curve_is_typeless_rather_than_wrong():
+    bare = Curve(oid=1, size=0)
+    assert bare.kind == "" and bare.points == ()
+    assert bare.centre is None and bare.ends is None and not bare.is_closed
+    assert Sketch(oid=1, index=0, name="Sketch", curves=(bare,)).loops() == ()
+    assert Sketch(oid=1, index=0, name="Sketch", curves=(bare,)).curve_check() == (0, ())
+
+
+def test_the_endpoint_gap_is_a_constant_not_a_per_document_offset():
+    """104 past the anchor in all four documents, at two different absolute
+    offsets — 266 in three of them and 214 in Focuser Mk1."""
+    assert ENDPOINT_GAP == 104
 
 
 def test_data_directory_is_where_the_samples_live():
