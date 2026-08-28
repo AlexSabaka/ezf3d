@@ -12,7 +12,15 @@ from ezf3d.model.document import (
 )
 from ezf3d.model.materials import Assignment, Materials, read_assignments, read_catalogue
 from ezf3d.model.parameters import Parameter, Parameters, read_parameters
-from ezf3d.model.sketch import Curve, Point, Sketch, Sketches, read_sketches
+from ezf3d.model.sketch import (
+    Curve,
+    Loop,
+    Point,
+    Sketch,
+    Sketches,
+    read_curve,
+    read_sketches,
+)
 from ezf3d.model.timeline import Extrude, Feature, Timeline, read_extrude, read_timeline
 
 __all__ = [
@@ -28,6 +36,7 @@ __all__ = [
     "Ef3dError",
     "Extrude",
     "Feature",
+    "Loop",
     "Materials",
     "Parameter",
     "Parameters",
@@ -37,6 +46,7 @@ __all__ = [
     "Timeline",
     "read_assignments",
     "read_catalogue",
+    "read_curve",
     "read_design",
     "read_extrude",
     "read_parameters",
