@@ -29,6 +29,7 @@ from ezf3d.inspect import (
     design_infos,
     document_info,
     parameter_infos,
+    sketch_infos,
     timeline_infos,
 )
 from ezf3d.mesh.polyline import DEFAULT_CHORD_TOLERANCE
@@ -1185,6 +1186,124 @@ def timeline(
             )
             console.print(f"[dim]{loose} named features sit outside the list — {top}[/]")
         console.print()
+
+
+@app.command()
+def sketches(
+    path: FileArg,
+    as_json: JsonOpt = False,
+    points: Annotated[
+        bool, typer.Option("--points", help="List every point of every sketch shown.")
+    ] = False,
+    limit: Annotated[
+        int, typer.Option("--limit", help="Rows to print per document; 0 for all.")
+    ] = 40,
+) -> None:
+    """The design's sketches: their points, curves and driving dimensions."""
+    try:
+        with readfile(path) as doc:
+            rows = sketch_infos(doc)
+            if not rows:
+                raise Ef3dError("this document carries no design segment")
+    except READ_ERRORS as exc:
+        _fail("sketches", path, exc, as_json)
+        return
+
+    payload = {"documents": [_dump(row) for row in rows]}
+    if as_json:
+        _emit("sketches", path, payload, True)
+        return
+
+    for row in rows:
+        console.print(
+            f"[bold]{row.document}[/] [dim]— {len(row.sketches)} sketches, "
+            f"{row.points} points, {row.curves} curves[/]"
+        )
+        if not row.sketches:
+            # A registry-less `.f3z` member has entity records and no feature
+            # object to own them.  Say so rather than reporting an empty design.
+            console.print("[dim]no sketches[/]")
+            if row.unowned:
+                console.print(
+                    f"[yellow]{row.unowned}[/] entity records, but no sketch object to own them"
+                )
+            console.print()
+            continue
+
+        table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
+        for column, justify in (
+            ("#", "right"),
+            ("sketch", "left"),
+            ("component", "left"),
+            ("id", "right"),
+            ("points", "right"),
+            ("curves", "right"),
+            ("extent cm", "left"),
+            ("dims", "right"),
+        ):
+            table.add_column(column, justify=justify, overflow="fold")
+        shown = row.sketches if limit <= 0 else row.sketches[:limit]
+        for sketch in shown:
+            table.add_row(
+                str(sketch.index + 1) if sketch.index >= 0 else "[dim]—[/]",
+                sketch.name or "[dim]unnamed[/]",
+                sketch.component,
+                str(sketch.oid),
+                str(sketch.points),
+                str(sketch.curves),
+                _extent_cell(sketch.extent),
+                _dimension_cell(sketch),
+            )
+        console.print(table)
+        if len(shown) < len(row.sketches):
+            console.print(f"[dim]… {len(row.sketches) - len(shown)} more (--limit 0 for all)[/]")
+
+        if points:
+            for sketch in shown:
+                if not sketch.coordinates:
+                    continue
+                drawn = "  ".join(f"({x:g}, {y:g})" for x, y in sketch.coordinates)
+                console.print(f"[dim]  {sketch.oid}:[/] {drawn}")
+
+        # The parameters are read from the table and the points from the
+        # geometry records, so agreement is a cross-check rather than a
+        # restatement of one reading.
+        checked = sum(sketch.dimensions_checked for sketch in row.sketches)
+        missing = sum(len(sketch.dimensions_missing) for sketch in row.sketches)
+        if checked or missing:
+            console.print(
+                f"[green]{checked}[/] of {checked + missing} linear dimensions are a distance "
+                f"between two of their own sketch's points"
+            )
+            if missing:
+                console.print(
+                    f"[dim]{missing} measure a point against a line, which is not read yet[/]"
+                )
+        loose = sum(1 for sketch in row.sketches if sketch.index < 0)
+        if loose:
+            console.print(f"[dim]{loose} sketches sit outside the timeline[/]")
+        if row.unowned:
+            console.print(f"[yellow]{row.unowned}[/] entity records name no sketch")
+        console.print()
+
+
+def _dimension_cell(sketch: Any) -> str:
+    """Linear dimensions re-derived from this sketch's own points, over the total."""
+    total = sketch.dimensions_checked + len(sketch.dimensions_missing)
+    if not total:
+        return "[dim]—[/]"
+    colour = "green" if not sketch.dimensions_missing else "yellow"
+    return f"[{colour}]{sketch.dimensions_checked}[/]/{total}"
+
+
+def _extent_cell(extent: list[float]) -> str:
+    """A sketch's bounding box as ``w x h``, or a dash when it has no points."""
+    if len(extent) != 4:
+        return "[dim]—[/]"
+    xmin, ymin, xmax, ymax = extent
+    if xmax == xmin and ymax == ymin:
+        return "[dim]—[/]"
+    return f"{xmax - xmin:g} x {ymax - ymin:g}"
 
 
 def _material_cell(material: str) -> str:

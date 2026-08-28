@@ -187,6 +187,43 @@ class TimelineInfo(BaseModel):
     over_counter: list[str] = Field(default_factory=list)
 
 
+class SketchInfo(BaseModel):
+    """One row of ``ezf3d sketches``."""
+
+    oid: int
+    #: Position in the timeline, or ``-1`` for a sketch the list does not hold.
+    index: int = -1
+    name: str = ""
+    #: Component whose id range holds the sketch.
+    component: str = ""
+    points: int = 0
+    curves: int = 0
+    #: ``(xmin, ymin, xmax, ymax)`` in centimetres, in the sketch's own frame.
+    extent: list[float] = Field(default_factory=list)
+    #: Every point, as ``(x, y)`` in centimetres, in object order. Two
+    #: dimensions: the frame that would place them in 3D is not in the design
+    #: stream.
+    coordinates: list[tuple[float, float]] = Field(default_factory=list)
+    #: The dimensions driving it, as attributed to the sketch feature.
+    parameters: list[ParameterInfo] = Field(default_factory=list)
+    #: Linear dimensions re-derived as a distance between two of this
+    #: sketch's own points, and the roles that could not be.
+    dimensions_checked: int = 0
+    dimensions_missing: list[str] = Field(default_factory=list)
+
+
+class SketchesInfo(BaseModel):
+    """Payload row of ``ezf3d sketches`` — one per document with a design."""
+
+    document: str
+    sketches: list[SketchInfo] = Field(default_factory=list)
+    points: int = 0
+    curves: int = 0
+    #: Entity records whose owner reference reached no sketch. Counted, not
+    #: dropped: 4 across the four samples.
+    unowned: int = 0
+
+
 class AssetInfo(BaseModel):
     folder: str
     name: str

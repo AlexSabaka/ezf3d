@@ -275,6 +275,22 @@ def owner_of(body: bytes, item: BulkObject, sketches: list[int]) -> int | None:
     return None
 
 
+def _count_entities(segment: Segment) -> int:
+    """Point and curve records in a segment, without attributing any."""
+    body = segment.bulk.body
+    total = 0
+    for item in segment.objects():
+        size = item.end - item.offset
+        if not (_MIN_RECORD < size < _MAX_RECORD):
+            continue
+        if (
+            body.find(_POINT_MARK, item.offset, item.end) >= 0
+            or body.find(_CURVE_MARK, item.offset, item.end) >= 0
+        ):
+            total += 1
+    return total
+
+
 def read_sketches(
     segment: Segment,
     timeline: Timeline | None = None,
@@ -297,7 +313,11 @@ def read_sketches(
     ids = sorted(oid for oid, name in timeline.named.items() if name == "Sketch")
     ids = sorted(set(ids) | set(order))
     if not ids:
-        return Sketches()
+        # A design can hold entity records and no sketch to hang them on: the
+        # registry-less `.f3z` members have no feature objects at all, and
+        # Roundified Cray keeps 51 such records.  Counted, so that "no
+        # sketches" does not read as "no sketch geometry".
+        return Sketches(unowned=_count_entities(segment))
 
     points: dict[int, list[Point]] = {oid: [] for oid in ids}
     curves: dict[int, list[Curve]] = {oid: [] for oid in ids}

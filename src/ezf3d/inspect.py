@@ -29,10 +29,13 @@ from ezf3d.model.report import (
     ParameterInfo,
     ParametersInfo,
     SegmentInfo,
+    SketchesInfo,
+    SketchInfo,
     TimelineEntry,
     TimelineInfo,
     Totals,
 )
+from ezf3d.model.sketch import read_sketches
 from ezf3d.model.timeline import read_timeline
 
 #: Enough bytes to cover the ASM header of any body.
@@ -197,6 +200,53 @@ def timeline_infos(document: Document) -> list[TimelineInfo]:
                 over_counter=[
                     f"{kind}: {live} live, {counter} issued" for kind, live, counter in over
                 ],
+            )
+        )
+    return rows
+
+
+def sketch_infos(document: Document) -> list[SketchesInfo]:
+    """One :class:`SketchesInfo` per document that carries a design segment.
+
+    A sketch's geometry is reached from the geometry, not from the timeline:
+    each point and curve names the sketch that owns it. The timeline is read
+    only for what the sketches are called and where they sit in the run order,
+    and a sketch the list does not hold still appears, with index ``-1``.
+    """
+    rows: list[SketchesInfo] = []
+    for child in document.documents():
+        segment = child.design
+        if segment is None:
+            continue
+        parameters = read_parameters(segment)
+        timeline = read_timeline(segment, parameters)
+        sketches = read_sketches(segment, timeline)
+        design = read_design(segment) if len(sketches) else None
+        entries = []
+        for sketch in sketches:
+            checked, missing = sketch.dimension_check()
+            entries.append(
+                SketchInfo(
+                    oid=sketch.oid,
+                    index=sketch.index,
+                    name=sketch.name,
+                    component=_component_name(design, sketch.oid),
+                    points=len(sketch.points),
+                    curves=len(sketch.curves),
+                    extent=list(sketch.extent()),
+                    coordinates=[(p.x, p.y) for p in sketch.points],
+                    parameters=[_parameter_info(p, design) for p in sketch.parameters],
+                    dimensions_checked=checked,
+                    dimensions_missing=list(missing),
+                )
+            )
+        rows.append(
+            SketchesInfo(
+                document=child.name,
+                sketches=entries,
+                points=sketches.points(),
+                curves=sketches.curves(),
+                unowned=sketches.unowned,
             )
         )
     return rows
