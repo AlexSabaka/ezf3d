@@ -404,6 +404,37 @@ def test_timeline_says_so_when_a_member_has_none(focuser):
         assert row["oid"] == 0 and not row["declared"]
 
 
+def test_sketches_reports_the_profile_geometry(sucker):
+    data = payload("sketches", str(sucker))["data"]
+    (document,) = data["documents"]
+    assert len(document["sketches"]) == 8
+    assert (document["points"], document["curves"]) == (231, 163)
+    assert document["unowned"] == 0
+    # The 0.5 mm slot, the case checkable by hand end to end.
+    slot = next(row for row in document["sketches"] if row["oid"] == 10251)
+    assert slot["index"] == 30
+    assert slot["dimensions_checked"] == 1 and not slot["dimensions_missing"]
+    # The stored numbers carry Fusion's own constraint-solve noise —
+    # -1.9500000000000017 — which the dimension check absorbs and this rounds.
+    corners = {(round(x, 9), round(y, 9)) for x, y in slot["coordinates"]}
+    assert {(-1.0, -2.0), (1.0, -2.0), (-1.0, -1.95), (1.0, -1.95)} <= corners
+
+
+def test_sketches_points_view_lists_coordinates(sucker):
+    code, out = invoke("sketches", str(sucker), "--points", "--limit", "2")
+    assert code == 0
+    assert "more (--limit 0 for all)" in out
+    assert "(0, 0)" in out
+
+
+def test_sketches_counts_geometry_a_member_has_no_sketch_for(focuser):
+    """A registry-less member holds entity records and no feature to own them."""
+    data = payload("sketches", str(focuser))["data"]
+    barren = [row for row in data["documents"] if not row["sketches"]]
+    assert barren
+    assert any(row["unowned"] for row in barren), "geometry with no sketch must be counted"
+
+
 def test_components_reports_material_assignments(sucker):
     data = payload("components", str(sucker))["data"]
     (document,) = data["documents"]
