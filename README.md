@@ -144,10 +144,13 @@ Full notes live in [`docs/format/`](docs/format/).
   so a profile fits at every instance of a patterned feature, and nothing in the geometry
   marks the seed. A second, non-geometric link goes further: an ASM `sketch_attrib_def`
   names the sketch curve a B-Rep edge came from, by the identity the curve record itself
-  carries — 2,714 edges reaching 73 of 130 sketches, and every closed edge naming a circle
-  where a global read had 209 of them naming lines. Those ids turn out to be scoped rather
-  than global, and finding the scope is now the single most valuable thing left.
-  `build123d` emission waits on it.
+  carries. Those ids are scoped to the **component**, which a body already knows — with
+  that, the link reaches 8,333 edges naming 1,079 of 1,334 curves across 125 of 130
+  sketches, and 794 of 796 closed edges name a circle where a scope-free read had 209
+  naming lines. Placing from those edges separates a patterned copy from its seed, which
+  shape matching cannot, and lands 25 of 52 placements in exactly one spot. `build123d`
+  emission waits on tying a *feature* to the topology it produced —
+  `generic_tag_attrib_def`, still unread.
 - **Phase 5 — simulate.** Mass properties and interference first, then `scikit-fem`
   linear static / modal / thermal.
 

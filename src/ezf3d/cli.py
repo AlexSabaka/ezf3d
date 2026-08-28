@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -1333,7 +1334,8 @@ def _print_placements(row: Any) -> None:
     table = Table(box=None, pad_edge=False, show_header=True, header_style="bold")
     for column, justify in (
         ("sketch", "right"),
-        ("loop", "left"),
+        ("from", "left"),
+        ("curves", "right"),
         ("places", "right"),
         ("origin cm", "left"),
         ("normal", "left"),
@@ -1344,7 +1346,8 @@ def _print_placements(row: Any) -> None:
     for found in row.placements:
         table.add_row(
             str(found.sketch),
-            f"{len(found.loop)} curves",
+            found.route,
+            str(len(found.loop)),
             "[green]1[/]" if found.candidates == 1 else str(found.candidates),
             _vector(found.origin),
             _vector(found.normal),
@@ -1357,10 +1360,16 @@ def _print_placements(row: Any) -> None:
         f"[green]{unique}[/] of {len(row.placements)} loops land in exactly one place; "
         f"{row.placed} sketches reached, {row.unplaced} matched no face"
     )
+    routes = Counter(found.route for found in row.placements)
+    if routes.get("edges"):
+        console.print(
+            f"[dim]{routes['edges']} placed from the curves a body's own edges name, "
+            f"{routes.get('shape', 0)} by matching a loop to a face[/]"
+        )
     if unique < len(row.placements):
         console.print(
             "[dim]more than one place is the design repeating itself — a patterned "
-            "feature puts congruent faces at every instance[/]"
+            "feature puts congruent geometry at every instance[/]"
         )
 
 

@@ -275,6 +275,7 @@ def _placement_info(row) -> PlacementInfo:
     return PlacementInfo(
         sketch=row.sketch,
         loop=list(row.loop),
+        route=row.route,
         candidates=len(row.frames),
         origin=list(frame.origin) if frame else [],
         u_dir=list(frame.u_dir) if frame else [],

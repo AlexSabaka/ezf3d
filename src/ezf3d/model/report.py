@@ -230,12 +230,16 @@ class PlacementInfo(BaseModel):
     """Where one loop of one sketch could sit in space."""
 
     sketch: int
-    #: Curve ids of the loop that matched a planar face.
+    #: Curve ids this placement rests on — a matched loop, or the curves the
+    #: body's own edges named.
     loop: list[int] = Field(default_factory=list)
+    #: ``edges`` when an ASM attribute named the sketch's curves outright,
+    #: ``shape`` when the loop was matched to a face by its distances. The
+    #: first is exact and unique far more often.
+    route: str = "edges"
     #: How many distinct places the profile could land. One is a placement;
     #: more is the design's own repetition — a patterned feature puts congruent
-    #: faces at every instance, and nothing in the geometry says which is the
-    #: seed.
+    #: geometry at every instance.
     candidates: int = 0
     #: The tightest fit's frame, in centimetres: origin, then the two axes.
     origin: list[float] = Field(default_factory=list)

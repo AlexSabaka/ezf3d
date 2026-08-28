@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import zipfile
 import zlib
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -448,13 +449,18 @@ def test_sketches_place_view_reports_frames_and_their_evidence(sucker):
     data = payload("sketches", str(sucker), "--place")["data"]
     (document,) = data["documents"]
     assert document["planar_faces"] == 1178
-    assert document["placed"] == 5 and document["unplaced"] == 3
+    assert document["placed"] == 6 and document["unplaced"] == 2
     assert document["placements"]
     for found in document["placements"]:
         # The solve never asks for orthonormal axes; that it gets them is the check.
         assert found["orthonormality"] < 1e-9
         assert found["residual"] < 1e-7
         assert len(found["normal"]) == 3
+        assert found["route"] in ("edges", "shape")
+    # Most come from the exact route, and two of them land in one place only.
+    routes = Counter(found["route"] for found in document["placements"])
+    assert routes["edges"] > routes["shape"]
+    assert sum(1 for f in document["placements"] if f["candidates"] == 1) == 2
     slot = next(f for f in document["placements"] if f["sketch"] == 10251)
     assert slot["normal"] == pytest.approx([0.0, 0.0, 1.0], abs=1e-9)
     assert slot["candidates"] > 1

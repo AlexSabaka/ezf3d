@@ -175,10 +175,16 @@ every instance of a patterned feature. SUCKER's slot lands in 8 places and that 
 nothing in the geometry marks the seed. Only 49 of 130 sketches match at all; the rest have
 been filleted, cut or shelled since.
 
-**What would settle it:** which body a feature produces, or which face a feature consumes.
-Both are the same missing link — the ASM tag attributes below, which persist across
-rebuilds and are what the timeline almost certainly addresses topology through. Resolving
-those would tie a feature to its own faces and end the ambiguity in one move.
+**A second route does better.** An ASM `sketch_attrib_def` names the sketch curve a B-Rep
+edge came from, so the correspondence is read rather than matched, and grouping those edges
+by shared world vertices separates a patterned copy from its seed — something shape matching
+cannot do, since congruent is congruent. 25 of its 52 placements land in exactly one place
+against 2 of shape matching's 13, and the two routes together reach 64 of 130 sketches. See
+[ASM tag attributes](#asm-tag-attributes).
+
+**What would settle the rest:** which body a feature produces, or which face it consumes.
+`generic_tag_attrib_def` is the obvious place — 5,629 records against the sketch
+attribute's 1,163, most of them on faces.
 
 **Also unread: profiles that close against geometry outside the sketch.** SUCKER's sketch
 #26 has 24 curves and *no* closed loop: 14 of its endpoints carry one curve each, and none
@@ -282,47 +288,46 @@ silently absorbed.
 
 ## ASM tag attributes
 
-**Status: the sketch attribute is decoded; its id scope is not.**
+**Status: the sketch attribute and its scope are both decoded.**
 
 `ATTRIB_CUSTOM` records name a definition and carry a payload. Across SUCKER's twelve
 bodies there are four: `generic_tag_attrib_def` (5,629), `sketch_attrib_def` (1,163),
-`Timestamp_attrib_def` (68) and `FPM_tracked_attrib_def` (63).
+`Timestamp_attrib_def` (68) and `FPM_tracked_attrib_def` (63). Slots 2, 4 and 5 of a record
+chain to sibling attributes and slot 6 is the entity it hangs off.
 
 **`sketch_attrib_def` is the link the design stream does not carry.** It hangs off a
 **coedge** and holds a string of six integers — `"1563 1589 1 0 1 1"` — whose first two are
 the `(crv_primary_id, crv_secondary_id)` that the sketch curve record itself holds. So a
 B-Rep edge says which sketch curve drew it, by a key written into two different streams.
-See [neutron-streams.md](neutron-streams.md#sketches).
+See [neutron-streams.md](neutron-streams.md#sketches). The other four columns are two small
+counters, a sense flag, and a column that is always zero.
 
-**The key is scoped to a sketch**, and that is the open part. SUCKER's 163 curves have
-distinct keys and all 1,163 of its attributes resolve; the fan's 3 do too. Robotic_Bhujha
-reuses **159 of its 331** keys — one belongs to five circles at once — and Focuser Mk1
-reuses 162 of 351.
+**The key is scoped to a component.** Robotic_Bhujha reuses **159 of its 331** keys across
+the document — one belongs to five circles at once — but **none within any of its ten
+components**. SUCKER and the fan reuse none at all. Since a body belongs to a component and
+a component owns its sketches, the body already says which table to read. Only Focuser Mk1
+still collides after scoping, on 44 keys at multiplicity two, and it is the one sample that
+is an assembly of XREF'd documents — so its numbering spans files the component boundary
+does not. It is also scoped no wider than a sketch: no two curves of one sketch share a key
+anywhere in the samples.
 
-The scope is now pinned rather than merely suspected: across all 1,331 curves of the
-samples, **no two curves of the same sketch share a key**. So the id identifies a curve
-unambiguously *given its sketch* — and the attribute does not carry the sketch. The
-payload's other four columns do not supply it either: two are small counters, one is a
-sense flag, and one is always zero.
+A key is therefore resolved against the sketches of the body's own component first, and
+against the whole document only where exactly one curve claims it.
 
-That makes the remaining question exact. Either the ASM side names the sketch somewhere
-else — a sibling attribute, or `generic_tag_attrib_def`, which is the larger population at
-5,629 records and chains between attributes — or the numbering has a per-sketch base that
-can be recovered. Both are findable; neither is found.
+Getting the scope wrong is not a hypothetical failure. A B-Rep edge that closes on itself
+can only have come from a full circle, and read with no scope at all **209 closed edges
+named lines**. Scoped to the body's component, **794 of 796 name circles** — the curve kind
+coming from the design stream and the closure from vertex identity in the ASM stream, two
+parsers with nothing in common. The two exceptions are both in the XREF'd assembly.
 
-Reading it globally therefore attributes an edge to whichever curve a dictionary happened
-to keep. That is not a hypothetical: a B-Rep edge that closes on itself can only have come
-from a full circle, and read globally **209 closed edges named lines**. Restricted to keys
-that belong to exactly one curve, **325 of 325 name circles** — the curve kind coming from
-the design stream and the closure from vertex identity in the ASM stream. The correction
-proving itself is the reason the restriction is in the code rather than a note.
+The link reaches **8,333 edges naming 1,079 of 1,334 curves across 125 of 130 sketches**,
+where refusing every key shared anywhere in the document reached 2,714 and 73.
 
-`ezf3d` returns only the unambiguous ones: 2,714 edges reaching 73 of 130 sketches, against
-the 49 that shape matching reaches.
-
-**Unlocks:** finding the scope would tie every feature to its own topology, and with it
-settle both open halves of [the sketch plane](#the-sketch-plane) — which instance a sketch
-sits on, and which loop an extrude sweeps. It is the single most valuable thing left.
+**What it unlocked:** placing a sketch from the edges that name its curves, rather than by
+matching shapes. Grouping those edges by shared world vertices separates a patterned copy
+from its seed, which shape matching cannot do — congruent is congruent. 25 of its 52
+placements land in exactly one place, against 2 of shape matching's 13. See
+[the sketch plane](#the-sketch-plane) for what is still ambiguous.
 
 `generic_tag_attrib_def` is the larger population and is still unread. It is what the
 timeline most likely addresses faces and edges through.
