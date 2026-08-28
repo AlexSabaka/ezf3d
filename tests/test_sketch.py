@@ -18,6 +18,7 @@ import pytest
 
 from ezf3d.model.sketch import (
     COORDINATE_GAP,
+    CURVE_KINDS,
     OWNER_REACH,
     Point,
     Sketch,
@@ -262,20 +263,24 @@ def test_no_sketch_is_larger_than_the_body_it_helped_build(sketch_sets, tessella
             )
 
 
-def test_the_module_names_what_it_cannot_do(sucker, shared_document):
-    """Curves are located but not typed, and that is stated rather than implied.
+def test_every_curve_is_typed_by_its_references_not_its_size(sucker, shared_document):
+    """The kind is how many points a curve names, which record size cannot give.
 
-    3.6b established that record size classifies nothing across documents, so
-    a :class:`~ezf3d.model.sketch.Curve` carries its size as a lead and no
-    type at all. If a later phase adds one, this is the test that should
-    change with it.
+    3.6b established that record size classifies nothing across documents, and
+    these sizes do move with the revision — SUCKER's line is 356 bytes and
+    Robotic_Bhujha's is 360. The reference count is 1, 2 or 3 in every
+    document, so that is what is read.
     """
     child = shared_document(sucker)
     sketches = read_sketches(child.design)
     curves = [curve for sketch in sketches for curve in sketch.curves]
     assert curves
-    assert all(not hasattr(curve, "kind") for curve in curves)
-    assert {type(curve.size) for curve in curves} == {int}
+    assert all(curve.kind in CURVE_KINDS.values() for curve in curves)
+    for curve in curves:
+        assert len(curve.points) == {"Circle": 1, "Line": 2, "Arc": 3}[curve.kind]
+    # One size does not decide one kind: the same count appears at several sizes.
+    by_kind = {kind: {c.size for c in curves if c.kind == kind} for kind in CURVE_KINDS.values()}
+    assert by_kind["Arc"] & {367}, by_kind
 
 
 def test_data_directory_is_where_the_samples_live():
