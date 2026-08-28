@@ -275,6 +275,11 @@ list interleaves ids 1270, 12657, 12825 — a feature created near the end of th
 sitting tenth, which is what dragging the timeline marker back and inserting there
 produces. Ordering by object id would put it last.
 
+**Confirmed against Fusion.** Everything else here is checked against something else the
+file says; the order is the one claim no second reading could settle, because a list is a
+list and nothing in the stream labels it *the* timeline. Opening SUCKER settles it:
+`Mirror`, object 12657, is the tenth entry its history shows.
+
 Nothing points from an item back to its feature: the feature is simply the object *before*
 it in the index. That is what identifies the list among every other reference list in the
 stream — ezf3d accepts only a list whose every entry resolves that way, and takes the

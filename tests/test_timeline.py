@@ -1,11 +1,15 @@
 """The timeline: which features a design has, and in what order.
 
-Order is the one thing here with no internal ground truth — a list is a list,
-and nothing in the file says it is *the* timeline. What these check is
+Order is the one thing here with no *internal* ground truth — a list is a
+list, and nothing in the file says it is *the* timeline. What these check is
 everything around it: that the list resolves completely, that its types are
 ones the registry declares, that no kind appears more often than the counter
-says was ever issued, and that two reads agree. The order itself is for a
-human to spot-check against Fusion.
+says was ever issued, and that two reads agree.
+
+The order itself was checked the only way it can be: against Fusion. SUCKER's
+``Mirror`` (oid 12657) was created near the end of the design and Fusion shows
+it **tenth**, which is where this reads it. That is the confirmation the rest
+of the module could not supply for itself.
 """
 
 from __future__ import annotations
@@ -22,6 +26,13 @@ from ezf3d.model.timeline import (
     read_feature,
     read_timeline,
 )
+
+#: The Fusion readout the order rests on: SUCKER's ``Mirror`` is object 12657,
+#: created near the end of the design, and its history shows it tenth. Written
+#: in verbatim because it is the one fact here no re-reading of the file could
+#: have produced.
+SUCKER_MIRROR = 12657
+SUCKER_MIRROR_INDEX = 9
 
 
 def test_every_entry_resolves_to_a_feature(timelines):
@@ -94,17 +105,21 @@ def test_reading_twice_gives_the_same_order(design, shared_document):
 
 
 def test_timeline_order_is_not_object_id_order(sucker, shared_document):
-    """SUCKER's ninth entry was created after its fiftieth.
+    """SUCKER's tenth entry was created after its fiftieth.
 
     This is the reason the list is read rather than reconstructed from ids:
     ordering by creation would put ``Mirror`` (12657) last instead of tenth.
+
+    **Tenth is what Fusion shows.** Everything else about the timeline is
+    checked against something else the file says; the order could only be
+    checked by opening the design, and it was. This test is that readout.
     """
     timeline = read_timeline(shared_document(sucker).design)
     oids = [feature.oid for feature in timeline]
     assert oids != sorted(oids)
-    mirror = next(f for f in timeline if f.name == "Mirror")
-    assert mirror.index == 9
-    assert mirror.oid > max(f.oid for f in timeline if f.index < 9)
+    tenth = timeline.features[SUCKER_MIRROR_INDEX]
+    assert (tenth.name, tenth.oid) == ("Mirror", SUCKER_MIRROR)
+    assert tenth.oid > max(f.oid for f in timeline if f.index < SUCKER_MIRROR_INDEX)
 
 
 def test_a_design_with_no_feature_registry_has_no_timeline(focuser, shared_document):

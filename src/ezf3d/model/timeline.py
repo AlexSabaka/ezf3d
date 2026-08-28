@@ -14,9 +14,14 @@ carries the name the user typed.
 **Order is not creation order.** Every feature is followed in the object index
 by a small *timeline item*, and one object lists those items in the order the
 timeline runs.  In SUCKER that list interleaves ids 1270, 12657, 12825 -- a
-feature created late sitting ninth -- which is what a designer dragging the
+feature created late sitting tenth -- which is what a designer dragging the
 timeline marker back and inserting there produces.  Ordering by object id
 would put it last, so the list is read rather than reconstructed.
+
+That one is confirmed against Fusion: ``Mirror``, object 12657, is the tenth
+thing SUCKER's history shows.  It is the only claim in this module that no
+second reading of the file could settle, so it was settled by opening the
+design.
 
 Nothing points from an item back to its feature; the feature is simply the
 object before it in the index.  That is what makes the list identifiable:

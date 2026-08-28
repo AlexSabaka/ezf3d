@@ -75,10 +75,13 @@ creations and placements sit outside it, and no second ordered list holds them �
 that exist are reached by direct reference, with no order to read. `ezf3d timeline` counts
 what is outside rather than implying the list is the whole timeline.
 
-There is also no internal ground truth for the *order* itself: a list is a list, and
-nothing in the file says it is the timeline. The evidence is circumstantial and good — the
-sequence reads like one, and it disagrees with creation order exactly where a designer
-would have dragged the marker back — but confirming it means opening the file in Fusion.
+**The order is now confirmed against Fusion.** There is no *internal* ground truth for it
+— a list is a list, and nothing in the file says it is the timeline — so the evidence was
+circumstantial: the sequence reads like one, and it disagrees with creation order exactly
+where a designer would have dragged the marker back. Opening SUCKER settles it. `Mirror`,
+object 12657, was created near the end of the design and its history shows it **tenth**,
+which is where this reads it. That was the last claim in the design layer standing on
+plausibility rather than on a check.
 
 The `u32` before a feature's name is unread: it is `0xFFFFFFFF` on sketches, work planes
 and paste/remove-body, and an ascending number elsewhere, but it is not the timeline index
