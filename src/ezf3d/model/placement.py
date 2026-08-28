@@ -43,11 +43,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
 from ezf3d.asm.brep import Coedge, Shape
 from ezf3d.asm.geometry import Plane
+from ezf3d.model.design import read_design
 from ezf3d.model.sketch import Sketch, Sketches, read_sketches
 
 #: Decimal places a distance is rounded to before loops are compared.  Loose
@@ -164,6 +166,14 @@ class SketchEdge:
     #: Where that curve ended up, in world centimetres.
     start: tuple[float, float, float]
     end: tuple[float, float, float]
+    #: How the key was resolved: ``component`` when the body's own component
+    #: held it, ``document`` when only one curve in the whole design claims it.
+    route: str = "component"
+
+    @property
+    def is_closed(self) -> bool:
+        """A B-Rep edge that returns to its own start."""
+        return self.start == self.end
 
 
 def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
@@ -175,30 +185,44 @@ def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
     reaches back to the geometry that drew it by a **key that is read, not
     inferred**.
 
-    **The key is scoped, not global**, and that bounds what this can say.  In
-    SUCKER all 163 curves have distinct keys and all 1,163 attributes resolve;
-    the fan's 3 do too.  Robotic_Bhujha reuses 159 of its 331 keys across
-    different sketches -- one belongs to five circles at once -- and Focuser
-    Mk1 reuses 162 of 351.  The scope is **the sketch**: across all 1,331 curves
-    of the samples no two curves of one sketch share a key, so the id names a
-    curve given its sketch -- and the attribute does not carry the sketch.  Its
-    other four numbers are counters and a sense flag, and supply none of it.
+    **The key is scoped to a component**, and finding that is what makes this
+    usable.  Robotic_Bhujha reuses 159 of its 331 keys across the document but
+    **none within any of its ten components**; SUCKER and the fan reuse none at
+    all.  A body belongs to a component and a component owns its sketches, so
+    the body says which table to read.  Only Focuser Mk1 -- an assembly of
+    XREF'd documents -- still collides, on 44 keys at multiplicity two.
 
-    So an edge is returned only where its key belongs to exactly one curve in
-    the document.  Ambiguous ones are counted by :func:`ambiguous_edges` rather
-    than attributed to whichever curve happened to be read last, which is what
-    a plain dictionary would have done silently.
+    A key is therefore resolved against the sketches of the body's **own
+    component** first, and against the whole document only where exactly one
+    curve claims it.  That reaches **8,333 edges naming 1,079 of 1,334 curves
+    across 125 of 130 sketches**, where refusing every key shared anywhere in
+    the document reached 2,714 edges and 73 sketches.
+
+    :func:`closure_check` measures what is left.  A B-Rep edge that closes on
+    itself can only have come from a full circle: **794 of 796** do, the two
+    exceptions both in the assembly.  Reading with no scope at all put 209
+    closed edges on lines, so the scope is doing the work even where it is
+    imperfect.
+
+    A key is resolved against the sketches of the body's **own component**
+    first, and against the whole document only where exactly one curve claims
+    it.  :func:`closure_check` measures what is left.
     """
     if child.design is None or not child.bodies:
         return []
     if sketches is None:
         sketches = read_sketches(child.design)
-    owner = _unambiguous(sketches)
-    if not owner:
+    document = _unambiguous(sketches)
+    scoped, contested = _by_component(child, sketches)
+    if not document and not scoped:
         return []
+    component_of = _bodies_by_component(child)
 
     found: list[SketchEdge] = []
     for body in child.bodies:
+        owner = component_of.get(Path(body.path).name)
+        near = scoped.get(owner, {})
+        clashing = contested.get(owner, frozenset())
         model = body.model()
         at = {entity.index: entity for entity in model.entities}
         for entity in model.entities:
@@ -210,14 +234,22 @@ def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
             if SKETCH_ATTRIB not in named:
                 continue
             key = _curve_named(named[-1])
-            if key not in owner:
+            route = "component"
+            if key in near and key not in clashing:
+                sketch, curve = near[key]
+            elif key in document:
+                sketch, curve = document[key]
+                route = "document"
+            else:
                 continue
             hosts = [
                 value
                 for kind, value in entity.tokens
                 if kind == _POINTER and isinstance(value, int) and value >= 0
             ]
-            node = at.get(hosts[0]) if hosts else None
+            # Slot 6 is the owner; the earlier slots chain to sibling
+            # attributes, so the last pointer is the entity this hangs off.
+            node = at.get(hosts[-1]) if hosts else None
             if node is None or node.base != "coedge":
                 continue
             edge = Coedge(model, node).edge
@@ -226,16 +258,71 @@ def sketch_edges(child, sketches: Sketches | None = None) -> list[SketchEdge]:
             head, tail = edge.start.position, edge.end.position
             if head is None or tail is None:
                 continue
-            sketch, curve = owner[key]
             found.append(
                 SketchEdge(
                     sketch=sketch,
                     curve=curve,
                     start=(float(head[0]), float(head[1]), float(head[2])),
                     end=(float(tail[0]), float(tail[1]), float(tail[2])),
+                    route=route,
                 )
             )
     return found
+
+
+def _bodies_by_component(child) -> dict[str, int]:
+    """Blob filename to the object id of the component that owns it."""
+    design = read_design(child.design)
+    return {
+        Path(blob).name: component.oid
+        for component in design.components
+        for blob in component.bodies
+    }
+
+
+def _by_component(
+    child, sketches: Sketches
+) -> tuple[dict[int, dict[tuple[int, int], tuple[int, int]]], dict[int, frozenset]]:
+    """Curve keys per component, and the keys that collide inside one."""
+    design = read_design(child.design)
+    table: dict[int, dict[tuple[int, int], tuple[int, int]]] = {}
+    clashes: dict[int, set[tuple[int, int]]] = {}
+    for sketch in sketches:
+        owner = design.owner(sketch.oid)
+        which = owner.oid if owner is not None else -1
+        rows = table.setdefault(which, {})
+        for curve in sketch.curves:
+            if curve.key == (0, 0):
+                continue
+            if curve.key in rows:
+                clashes.setdefault(which, set()).add(curve.key)
+            rows[curve.key] = (sketch.oid, curve.oid)
+    return table, {which: frozenset(keys) for which, keys in clashes.items()}
+
+
+def closure_check(sketches: Sketches, edges: Iterable[SketchEdge]) -> tuple[int, tuple[int, ...]]:
+    """``(closed edges naming a circle, the curve ids of those that do not)``.
+
+    A B-Rep edge that returns to its own start can only have come from a full
+    circle.  The kind is read from the design stream by counting a curve's
+    point references and the closure from vertex identity in the ASM stream, so
+    this is a check across two parsers rather than within one -- and it is what
+    caught the scope being wrong in the first place.
+
+    Only that direction holds: a circle cut by an intersection leaves an open
+    edge, so open edges are not checked.
+    """
+    kind_of = {curve.oid: curve.kind for sketch in sketches for curve in sketch.curves}
+    good = 0
+    wrong: list[int] = []
+    for edge in edges:
+        if not edge.is_closed:
+            continue
+        if kind_of.get(edge.curve) == "Circle":
+            good += 1
+        else:
+            wrong.append(edge.curve)
+    return good, tuple(wrong)
 
 
 def _unambiguous(sketches: Sketches) -> dict[tuple[int, int], tuple[int, int]]:
@@ -450,6 +537,7 @@ __all__ = [
     "Placement",
     "Placements",
     "SketchEdge",
+    "closure_check",
     "place_sketch",
     "place_sketches",
     "shared_keys",
