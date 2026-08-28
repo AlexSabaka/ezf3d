@@ -12,7 +12,14 @@ from ezf3d.model.document import (
 )
 from ezf3d.model.materials import Assignment, Materials, read_assignments, read_catalogue
 from ezf3d.model.parameters import Parameter, Parameters, read_parameters
-from ezf3d.model.placement import Frame, Placement, Placements, place_sketches
+from ezf3d.model.placement import (
+    Frame,
+    Placement,
+    Placements,
+    SketchEdge,
+    place_sketches,
+    sketch_edges,
+)
 from ezf3d.model.sketch import (
     Curve,
     Loop,
@@ -46,6 +53,7 @@ __all__ = [
     "Placements",
     "Point",
     "Sketch",
+    "SketchEdge",
     "Sketches",
     "Timeline",
     "place_sketches",
@@ -58,6 +66,7 @@ __all__ = [
     "read_sketches",
     "read_timeline",
     "readfile",
+    "sketch_edges",
 ]
 
 from ezf3d.model.report import (
